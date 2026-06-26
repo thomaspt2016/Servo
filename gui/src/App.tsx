@@ -15,7 +15,8 @@ import {
   FileCode,
   Copy,
   PictureInPicture2,
-  ExternalLink
+  ExternalLink,
+  Wand2
 } from "lucide-react";
 
 // Import custom UI components
@@ -53,6 +54,7 @@ declare global {
         clear_logs(projectId: string, serviceId: string): Promise<boolean>;
         pick_folder(default_dir?: string | null): Promise<string | null>;
         pick_file(default_dir?: string | null): Promise<string | null>;
+        scan_folder_for_services(folder_path: string): Promise<Service[]>;
         get_npm_scripts(folder_path: string): Promise<string[]>;
         get_installed_languages(): Promise<string[]>;
         open_pip(): Promise<boolean>;
@@ -910,6 +912,45 @@ function App() {
     });
   };
 
+  const handleAutoDetectServices = async () => {
+    try {
+      const selectedPath = await getApi().pick_folder(null);
+      if (selectedPath) {
+        const detectedServices = await getApi().scan_folder_for_services(selectedPath);
+        if (detectedServices && detectedServices.length > 0) {
+          const mappedServices = detectedServices.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            description: "",
+            path: s.path,
+            command: s.command,
+            venv_path: s.venv_path || "",
+            use_venv: !!s.use_venv,
+            language: s.language,
+            mode: "custom" as const
+          }));
+          
+          setFormState(prev => {
+            let newServices = [...prev.services];
+            if (newServices.length === 1 && !newServices[0].path && !newServices[0].command) {
+              newServices = mappedServices;
+            } else {
+              newServices = [...newServices, ...mappedServices];
+            }
+            const projName = prev.name || selectedPath.split(/[/\\]/).pop() || "Auto Project";
+            return { ...prev, name: projName, services: newServices };
+          });
+          setDialogError("");
+        } else {
+          setDialogError(`No known services detected in the selected folder.`);
+        }
+      }
+    } catch (err) {
+      console.error("Error auto-detecting services:", err);
+      setDialogError("Failed to auto-detect services.");
+    }
+  };
+
   // Folder Pick Dialogs
   const handleBrowsePath = async (index: number) => {
     try {
@@ -1175,25 +1216,55 @@ function App() {
                     onClick={() => {
                       setActiveProjectId(project.id);
                     }}
-                    className={`p-3 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
+                    className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all duration-300 group relative flex flex-col gap-2 overflow-hidden ${
                       isActive
-                        ? "bg-zinc-900/60 border-primary/45 shadow-sm text-zinc-200"
-                        : "bg-zinc-950/30 border-zinc-900/80 hover:bg-zinc-900/30 hover:border-zinc-850 text-zinc-400 hover:text-zinc-200"
+                        ? "bg-zinc-900/80 border-primary/50 shadow-md shadow-primary/5 text-zinc-100"
+                        : "bg-zinc-950/40 border-zinc-900 hover:bg-zinc-900/50 hover:border-zinc-800 text-zinc-400 hover:text-zinc-200"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold truncate block flex-1">
-                        {project.name}
-                      </span>
-                      <span className={`h-2 w-2 rounded-full flex-shrink-0 ${statusColor}`} />
+                    <div className="flex items-start justify-between w-full">
+                      <div className="flex flex-col flex-1 truncate pr-2">
+                        <span className="text-xs font-bold truncate text-zinc-200">
+                          {project.name}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 truncate mt-0.5">
+                          {project.category || "Uncategorized"}
+                        </span>
+                      </div>
+                      
+                      {/* Status / Actions Container */}
+                      <div className="flex items-center justify-end min-w-[40px] h-6 relative">
+                        {/* Status Dot */}
+                        <div className={`h-2.5 w-2.5 rounded-full ${statusColor} transition-all duration-300 absolute right-1 group-hover:opacity-0 group-hover:scale-50`} />
+                        
+                        {/* Actions */}
+                        <div className="absolute right-0 flex items-center space-x-0.5 opacity-0 scale-95 translate-x-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-x-0 transition-all duration-300">
+                          <button
+                            onClick={(e) => handleEditClick(project, e)}
+                            className="p-1.5 text-zinc-500 hover:text-primary hover:bg-primary/15 rounded-md transition-all"
+                            title="Edit Project"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteClick(project.id, e)}
+                            className="p-1.5 text-zinc-500 hover:text-destructive hover:bg-destructive/15 rounded-md transition-all"
+                            title="Delete Project"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     
-                    <div className="flex items-center justify-between mt-1.5 text-[9px] text-zinc-550 font-medium">
-                      <span className="truncate max-w-[65%]">
-                        {Array.from(new Set(services.map(s => s.language || "Python"))).join(", ")}
-                      </span>
-                      <span>
-                        {runningCount}/{services.length} Running
+                    <div className="flex items-center justify-between text-[9px] font-medium pt-2.5 border-t border-zinc-900/50 group-hover:border-zinc-800/80 transition-colors">
+                      <div className="flex items-center space-x-1.5 truncate pr-2">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 truncate">
+                           {Array.from(new Set(services.map(s => s.language || "Python"))).join(", ")}
+                        </span>
+                      </div>
+                      <span className={`whitespace-nowrap ${runningCount > 0 ? "text-emerald-500/90" : "text-zinc-600"}`}>
+                        {runningCount}/{services.length} active
                       </span>
                     </div>
                   </div>
@@ -1625,6 +1696,14 @@ function App() {
             <div className="border-t border-zinc-900 pt-4">
               <div className="flex justify-between items-center mb-3">
                 <h3 className="text-sm font-bold text-zinc-300">Services Stack ({formState.services.length})</h3>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectServices}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-primary/20 hover:bg-primary/30 text-xs font-semibold rounded-lg text-primary transition-colors border border-primary/20"
+                >
+                  <Wand2 className="h-3.5 w-3.5" />
+                  <span>Smart Import (Auto-detect)</span>
+                </button>
               </div>
 
               <div className="space-y-4 max-h-[45vh] overflow-y-auto pr-1">

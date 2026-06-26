@@ -623,6 +623,108 @@ class Api:
             logger.error(f"Error loading npm scripts from folder {folder_path}: {e}")
         return []
 
+    def scan_folder_for_services(self, folder_path):
+        """
+        Scans a folder up to 2 levels deep and detects services based on language-agnostic rules.
+        """
+        if not folder_path or not os.path.exists(folder_path):
+            return []
+            
+        import time
+        discovered_services = []
+        
+        # Rules for language-agnostic detection
+        rules = [
+            {
+                "language": "Node.js",
+                "indicators": ["package.json"],
+                "command": "npm run dev",
+                "use_venv": False,
+                "venv_folders": []
+            },
+            {
+                "language": "Python",
+                "indicators": ["requirements.txt", "Pipfile", "pyproject.toml", "manage.py", "app.py", "main.py"],
+                "command": "python app.py",
+                "use_venv": True,
+                "venv_folders": ["venv", "env", ".venv", ".env"]
+            },
+            {
+                "language": "Rust",
+                "indicators": ["Cargo.toml"],
+                "command": "cargo run",
+                "use_venv": False,
+                "venv_folders": []
+            },
+            {
+                "language": "Go",
+                "indicators": ["go.mod"],
+                "command": "go run .",
+                "use_venv": False,
+                "venv_folders": []
+            },
+            {
+                "language": "Java",
+                "indicators": ["pom.xml", "build.gradle"],
+                "command": "mvn spring-boot:run",
+                "use_venv": False,
+                "venv_folders": []
+            }
+        ]
+        
+        ignore_dirs = {"node_modules", ".git", "__pycache__", "build", "dist", "target", "vendor", ".idea", ".vscode"}
+        
+        # We only want to go 2 levels deep to prevent clutter
+        start_level = folder_path.rstrip(os.path.sep).count(os.path.sep)
+        
+        for root, dirs, files in os.walk(folder_path):
+            current_level = root.rstrip(os.path.sep).count(os.path.sep)
+            if current_level - start_level >= 2:
+                dirs[:] = [] # Stop traversing deeper
+                
+            # Filter ignored directories in-place
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            # Check rules
+            for rule in rules:
+                if any(ind in files for ind in rule["indicators"]):
+                    # Found a match
+                    service = {
+                        "id": f"srv-auto-{int(time.time()*1000)}-{len(discovered_services)}",
+                        "name": f"{rule['language']} Service ({os.path.basename(root) or 'Root'})",
+                        "path": root.replace('\\', '/'),
+                        "command": rule["command"],
+                        "use_venv": rule["use_venv"],
+                        "language": rule["language"],
+                        "venv_path": ""
+                    }
+                    
+                    # Refine python command if specific files exist
+                    if rule["language"] == "Python":
+                        if "manage.py" in files:
+                            service["command"] = "python manage.py runserver"
+                        elif "main.py" in files:
+                            service["command"] = "python main.py"
+                            
+                        # Look for venv
+                        for v_folder in rule["venv_folders"]:
+                            if v_folder in dirs:
+                                service["venv_path"] = os.path.join(root, v_folder).replace('\\', '/')
+                                break
+                    
+                    # Refine node command if package.json has scripts
+                    if rule["language"] == "Node.js":
+                        npm_scripts = self.get_npm_scripts(root)
+                        if "dev" in npm_scripts:
+                            service["command"] = "npm run dev"
+                        elif "start" in npm_scripts:
+                            service["command"] = "npm start"
+                    
+                    discovered_services.append(service)
+                    break # Usually one primary service per folder
+                    
+        return discovered_services
+
     def get_installed_languages(self):
         import shutil
         installed = []

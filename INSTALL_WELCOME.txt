@@ -1,0 +1,6 @@
+Welcome to Servo Installation.
+
+This wizard will guide you through the setup of Servo. 
+
+Developer: Thomas P.T.
+Email: thomaspt2016@gmail.com

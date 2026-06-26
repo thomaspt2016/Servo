@@ -1,0 +1,6 @@
+sERVO has been successfully installed.
+
+You can now launch the application using the desktop shortcut or from the Start menu.
+
+Support: thomaspt2016@gmail.com
+
