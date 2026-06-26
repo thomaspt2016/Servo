@@ -114,23 +114,109 @@ class Api:
         except Exception as e:
             logger.error(f"Failed to write projects to storage JSON: {e}", exc_info=True)
 
+    def write_to_service(self, project_id, service_id, data):
+        key = f"{project_id}_{service_id}"
+        with self.lock:
+            proc = self.processes.get(key)
+            if hasattr(proc, 'write'):
+                try:
+                    proc.write(data)
+                    
+                    if data == '\x03':
+                        # The user pressed Ctrl+C. Try to aggressively kill any running child commands
+                        # inside the winpty terminal (like npm run dev) so they don't get stuck.
+                        try:
+                            import psutil
+                            import subprocess
+                            agent_proc = psutil.Process(proc.pid)
+                            for shell_proc in agent_proc.children():
+                                for cmd_proc in shell_proc.children():
+                                    subprocess.run(f"taskkill /F /T /PID {cmd_proc.pid}", shell=True, capture_output=True)
+                        except Exception as e:
+                            logger.debug(f"Aggressive Ctrl+C psutil kill failed: {e}")
+                    
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to write to {key} winpty: {e}")
+            elif proc and hasattr(proc, 'stdin') and proc.stdin:
+                try:
+                    proc.stdin.write(data.encode('utf-8'))
+                    proc.stdin.flush()
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to write to {key} stdin: {e}")
+        return False
+
+    def _read_stream_winpty(self, key, pty):
+        try:
+            import json
+            import time
+            import psutil
+            
+            shell_pid = pty.pid
+            empty_reads = 0
+            
+            while True:
+                # read without blocking continuously, with small sleep
+                text = pty.read(blocking=False)
+                if text:
+                    empty_reads = 0
+                    escaped = json.dumps(text)[1:-1]
+                    if self._window:
+                        try:
+                            self._window.evaluate_js(f"if (window.writeToTerminalUI) window.writeToTerminalUI('{key}', \"{escaped}\");")
+                        except Exception:
+                            pass
+                else:
+                    empty_reads += 1
+                    if not pty.isalive():
+                        break
+                        
+                    # winpty's isalive() tracks the agent which can outlive the shell
+                    # check if the actual shell process has exited periodically
+                    if empty_reads % 50 == 0:
+                        try:
+                            if not psutil.pid_exists(shell_pid):
+                                break
+                        except Exception:
+                            pass
+                            
+                    time.sleep(0.01)
+        except Exception as e:
+            logger.debug(f"Winpty stream reading exited for service {key}: {e}")
+        finally:
+            with self.lock:
+                if key in self.processes and self.processes[key] == pty:
+                    del self.processes[key]
+                    if key in self.logs:
+                        self.logs[key].append("[SYSTEM] Console session closed.")
+
     def _read_stream(self, key, stream, stream_name):
         try:
-            for line in iter(stream.readline, ''):
-                if not line:
+            import json
+            while True:
+                # Read chunks to support interactive prompt rendering without blocking
+                chunk = stream.read(1024)
+                if not chunk:
                     break
-                with self.lock:
-                    if key not in self.logs:
-                        self.logs[key] = []
-                    # Append log line prefixed with system timestamp or channel
-                    self.logs[key].append(f"[{stream_name}] {line.rstrip()}")
-                    # Maintain buffer limit (e.g. 500 lines)
-                    if len(self.logs[key]) > 500:
-                        self.logs[key].pop(0)
+                text = chunk.decode('utf-8', errors='replace')
+                escaped = json.dumps(text)[1:-1] # escape safely for JS
+                if self._window:
+                    try:
+                        self._window.evaluate_js(f"if (window.writeToTerminalUI) window.writeToTerminalUI('{key}', \"{escaped}\");")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"Pipe stream reading exited for service {key}: {e}")
         finally:
             stream.close()
+            with self.lock:
+                if key in self.processes:
+                    proc = self.processes[key]
+                    if hasattr(proc, 'stdout') and proc.stdout == stream:
+                        del self.processes[key]
+                        if key in self.logs:
+                            self.logs[key].append("[SYSTEM] Process stream closed.")
 
     def load_projects(self):
         return self._load_from_json()
@@ -177,12 +263,6 @@ class Api:
     def start_service(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
         with self.lock:
-            # Check if service is already running
-            if key in self.processes:
-                if self.processes[key].poll() is None:
-                    logger.info(f"Start ignored: service {key} is already running.")
-                    return True
-            
             projects = self._load_from_json()
             project = next((p for p in projects if p.get('id') == project_id), None)
             if not project:
@@ -203,6 +283,42 @@ class Api:
             if not path or not command:
                 logger.warning(f"Start failed for service {key}: Missing path or command parameters.")
                 return False
+
+            # Check if service is already running
+            if key in self.processes:
+                proc = self.processes[key]
+                is_busy = False
+                if os.name == 'nt':
+                    try:
+                        import psutil
+                        proc_obj = psutil.Process(proc.pid)
+                        children = [c for c in proc_obj.children(recursive=True) if c.name().lower() != 'conhost.exe']
+                        if hasattr(proc, 'isalive'):
+                            is_busy = len(children) > 1 and proc.isalive()
+                        else:
+                            is_busy = len(children) > 0 and proc.poll() is None
+                    except Exception:
+                        if hasattr(proc, 'isalive'):
+                            is_busy = proc.isalive()
+                        else:
+                            is_busy = proc.poll() is None
+                else:
+                    if hasattr(proc, 'isalive'):
+                        is_busy = proc.isalive()
+                    else:
+                        is_busy = proc.poll() is None
+
+                if is_busy:
+                    logger.info(f"Start ignored: service {key} is already running.")
+                    return True
+                else:
+                    logger.info(f"Terminal for {key} is idle. Sending command to existing terminal.")
+                    if hasattr(proc, 'write'):
+                        proc.write(command + '\r\n')
+                    elif hasattr(proc, 'stdin') and proc.stdin:
+                        proc.stdin.write((command + '\r\n').encode('utf-8'))
+                        proc.stdin.flush()
+                    return True
                 
             logger.info(f"Attempting to launch service '{name}' (Key: {key}). CWD: '{path}', Cmd: '{command}', Venv: '{venv_path}'")
             try:
@@ -225,35 +341,76 @@ class Api:
                 if os.name != 'nt':
                     preexec = os.setsid
                 
-                # Windows flag to hide command popups
-                creation_flags = 0
                 if os.name == 'nt':
-                    creation_flags = subprocess.CREATE_NO_WINDOW
+                    try:
+                        import winpty
+                        # Initialize PTY for an 80x24 terminal
+                        pty = winpty.PTY(80, 24)
+                        
+                        # Set up environment variables as a dictionary
+                        # winpty expects env to be a null-terminated string of KEY=VALUE pairs
+                        pty_env = '\0'.join([f"{k}={v}" for k, v in process_env.items()]) + '\0'
+                        
+                        # Spawn the process in the PTY without any arguments so it boots a pure interactive shell
+                        pty.spawn('powershell.exe', cwd=expanded_path, env=pty_env)
+                        
+                        self.processes[key] = pty
+                        self.logs[key] = [f"[SYSTEM] Service started in winpty embedded console"]
+                        logger.info(f"Service '{name}' successfully started with winpty.")
+                        
+                        # Start background thread to drain PTY
+                        t_out = threading.Thread(target=self._read_stream_winpty, args=(key, pty), daemon=True)
+                        t_out.start()
+                        
+                        # Automatically 'type' the command into the shell so the user sees it at the prompt
+                        import time
+                        def write_cmd():
+                            time.sleep(0.5) # Wait for powershell to boot and show prompt
+                            pty.write(command + '\r\n')
+                        threading.Thread(target=write_cmd, daemon=True).start()
+                    except ImportError:
+                        logger.warning("pywinpty not installed. Falling back to subprocess pipes.")
+                        import base64
+                        creation_flags = subprocess.CREATE_NO_WINDOW
+                        encoded_cmd = base64.b64encode(command.encode('utf-16-le')).decode('utf-8')
+                        ps_cmd = f'powershell.exe -NoExit -EncodedCommand {encoded_cmd}'
+                        
+                        proc = subprocess.Popen(
+                            ps_cmd,
+                            cwd=expanded_path,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            stdin=subprocess.PIPE,
+                            bufsize=0,
+                            creationflags=creation_flags,
+                            env=process_env
+                        )
+                        self.processes[key] = proc
+                        self.logs[key] = [f"[SYSTEM] Service started in embedded console with PID {proc.pid}"]
+                        if hasattr(proc, 'stdout') and proc.stdout:
+                            t_out = threading.Thread(target=self._read_stream, args=(key, proc.stdout, "STDOUT"), daemon=True)
+                            t_out.start()
+
+                else:
+                    proc = subprocess.Popen(
+                        command,
+                        shell=True,
+                        cwd=expanded_path,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        stdin=subprocess.PIPE,
+                        bufsize=0,
+                        preexec_fn=preexec,
+                        env=process_env
+                    )
                 
-                proc = subprocess.Popen(
-                    command,
-                    shell=True,
-                    cwd=expanded_path,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    bufsize=1,
-                    creationflags=creation_flags,
-                    preexec_fn=preexec,
-                    env=process_env
-                )
-                
-                self.processes[key] = proc
-                self.logs[key] = [f"[SYSTEM] Service started with PID {proc.pid}"]
-                logger.info(f"Service '{name}' successfully started. Process PID: {proc.pid}")
-                
-                # Start logging threads to continuously drain stdout/stderr pipes
-                t_out = threading.Thread(target=self._read_stream, args=(key, proc.stdout, "STDOUT"), daemon=True)
-                t_err = threading.Thread(target=self._read_stream, args=(key, proc.stderr, "STDERR"), daemon=True)
-                t_out.start()
-                t_err.start()
+                    self.processes[key] = proc
+                    self.logs[key] = [f"[SYSTEM] Service started in embedded console with PID {proc.pid}"]
+                    logger.info(f"Service '{name}' successfully started. Process PID: {proc.pid}")
+                    
+                    if hasattr(proc, 'stdout') and proc.stdout:
+                        t_out = threading.Thread(target=self._read_stream, args=(key, proc.stdout, "STDOUT"), daemon=True)
+                        t_out.start()
                 
                 return True
             except Exception as e:
@@ -326,7 +483,33 @@ class Api:
                     key = f"{p_id}_{s_id}"
                     proc = self.processes.get(key)
                     if proc:
-                        poll = proc.poll()
+                        poll = None
+                        if os.name == 'nt':
+                            try:
+                                import psutil
+                                proc_obj = psutil.Process(proc.pid)
+                                children = [c for c in proc_obj.children(recursive=True) if c.name().lower() != 'conhost.exe']
+                                if hasattr(proc, 'isalive'):
+                                    if not proc.isalive():
+                                        poll = 1
+                                    else:
+                                        poll = None if len(children) > 1 else 0
+                                else:
+                                    if proc.poll() is not None:
+                                        poll = proc.poll()
+                                    else:
+                                        poll = None if len(children) > 0 else 0
+                            except Exception:
+                                if hasattr(proc, 'isalive'):
+                                    poll = None if proc.isalive() else 1
+                                else:
+                                    poll = proc.poll()
+                        else:
+                            if hasattr(proc, 'isalive'):
+                                poll = None if proc.isalive() else 1
+                            else:
+                                poll = proc.poll()
+                                
                         if poll is None:
                             statuses[key] = "Running"
                         elif poll == 0:
@@ -379,6 +562,21 @@ class Api:
             except Exception as e:
                 logger.error(f"Exception opening file selector: {e}", exc_info=True)
         return None
+
+    def open_native_terminal(self, cwd=None):
+        logger.info(f"Opening native OS terminal (cwd: {cwd})...")
+        try:
+            directory = cwd if cwd and os.path.exists(cwd) else self.base_dir
+            if os.name == 'nt':
+                # Launch PowerShell natively
+                subprocess.Popen(['start', 'powershell', '-NoExit'], shell=True, cwd=directory)
+            else:
+                # macOS / Linux fallbacks if needed
+                subprocess.Popen(['x-terminal-emulator'], cwd=directory)
+            return True
+        except Exception as e:
+            logger.error(f"Exception opening native terminal: {e}", exc_info=True)
+            return False
 
     def get_npm_scripts(self, folder_path):
         if not folder_path:
@@ -530,8 +728,20 @@ class Api:
                 main_is_minimized = bool(user32.IsIconic(main_hwnd))
                 pip_is_visible   = bool(user32.IsWindowVisible(pip_hwnd))
 
-                if main_is_active and not main_is_minimized:
-                    # Main window is in the foreground — hide PiP
+                any_running = False
+                with self.lock:
+                    for proc in self.processes.values():
+                        if hasattr(proc, 'isalive'):
+                            if proc.isalive():
+                                any_running = True
+                                break
+                        elif hasattr(proc, 'poll'):
+                            if proc.poll() is None:
+                                any_running = True
+                                break
+
+                if not any_running or (main_is_active and not main_is_minimized):
+                    # No services running OR Main window is in the foreground — hide PiP
                     if pip_is_visible:
                         try:
                             import ctypes
@@ -539,10 +749,11 @@ class Api:
                             ctypes.windll.user32.ShowWindow(hwnd, 0) # SW_HIDE
                         except Exception:
                             pip_win.hide()
-                        logger.debug("PiP hidden — main window active.")
-                    self._pip_paused = False  # reset so PiP reappears next time
+                        logger.debug("PiP hidden — main window active or no services running.")
+                    if main_is_active and not main_is_minimized:
+                        self._pip_paused = False  # reset so PiP reappears next time
                 elif (main_is_minimized or not main_is_active) and not pip_is_active:
-                    # Main is minimized OR user switched to another app — show PiP
+                    # Main is minimized OR user switched to another app AND services are running — show PiP
                     if not pip_is_visible and not self._pip_paused:
                         try:
                             import ctypes
@@ -550,7 +761,7 @@ class Api:
                             ctypes.windll.user32.ShowWindow(hwnd, 8) # SW_SHOWNA
                         except Exception:
                             pip_win.show()
-                        logger.debug("PiP shown — main window inactive/minimized.")
+                        logger.debug("PiP shown — main window inactive/minimized and services running.")
             except Exception as e:
                 logger.debug(f"PiP monitor error: {e}")
 
@@ -586,13 +797,7 @@ class Api:
     def get_pip_data(self):
         """Return all projects and their current service statuses for the PiP window."""
         projects = self._load_from_json()
-        statuses = {}
-        with self.lock:
-            for key, proc in self.processes.items():
-                if proc.poll() is None:
-                    statuses[key] = "Running"
-                else:
-                    statuses[key] = "Stopped"
+        statuses = self.get_statuses()
         return {"projects": projects, "statuses": statuses}
 
 if __name__ == '__main__':
@@ -641,11 +846,8 @@ if __name__ == '__main__':
             except Exception as e:
                 logger.error(f"Failed to stop service {key} on window close: {e}", exc_info=True)
         
-        logger.info("Cleanup complete. Forcefully terminating process to prevent ghost windows...")
-        import sys
-        sys.stdout.flush()
-        os._exit(0)
-
+        logger.info("Cleanup complete. Waiting for pywebview to exit gracefully...")
+        
     window.events.closed += on_closed
 
 

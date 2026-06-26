@@ -61,6 +61,7 @@ declare global {
         minimize_pip(): Promise<boolean>;
         focus_main_window(): Promise<boolean>;
         get_pip_data(): Promise<{ projects: Project[]; statuses: Record<string, string> }>;
+        write_to_service(projectId: string, serviceId: string, data: string): Promise<boolean>;
       };
     };
   }
@@ -91,30 +92,88 @@ const getApi = () => {
   return window.pywebview!.api;
 };
 
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
+
+declare global {
+  interface Window {
+    writeToTerminalUI?: (key: string, data: string) => void;
+    __terminals?: Record<string, any>;
+  }
+}
+
+window.writeToTerminalUI = (key: string, data: string) => {
+  if (window.__terminals && window.__terminals[key]) {
+    window.__terminals[key].write(data);
+  }
+};
+
 interface LogConsoleProps {
+  projectId: string;
+  serviceId: string;
   serviceName: string;
   logs: string[];
   status: string;
-  autoScroll: boolean;
   onClear: () => void;
 }
 
-const stripAnsi = (str: string) => {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "");
-};
-
-function LogConsole({ serviceName, logs, status, autoScroll, onClear }: LogConsoleProps) {
+function LogConsole({ projectId, serviceId, serviceName, logs, status, onClear }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
 
   useEffect(() => {
-    if (autoScroll && containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    if (!containerRef.current) return;
+    
+    const term = new XTerm({
+      theme: { background: 'transparent' },
+      fontFamily: 'monospace',
+      fontSize: 12,
+      cursorBlink: true,
+      scrollback: 5000,
+      convertEol: true, 
+    });
+    
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    
+    term.open(containerRef.current);
+    fitAddon.fit();
+    
+    const resizeObserver = new ResizeObserver(() => {
+      try {
+        fitAddon.fit();
+      } catch (e) {}
+    });
+    resizeObserver.observe(containerRef.current);
+    
+    termRef.current = term;
+
+    const key = `${projectId}_${serviceId}`;
+    if (!window.__terminals) window.__terminals = {};
+    window.__terminals[key] = term;
+
+    if (logs && logs.length > 0) {
+      term.write(logs.join(''));
     }
-  }, [logs, autoScroll]);
+
+    term.onData(data => {
+      if (window.pywebview?.api?.write_to_service) {
+        window.pywebview.api.write_to_service(projectId, serviceId, data);
+      }
+    });
+
+    return () => {
+      resizeObserver.disconnect();
+      if (window.__terminals) {
+        delete window.__terminals[key];
+      }
+      term.dispose();
+    };
+  }, [projectId, serviceId]);
 
   return (
-    <div className="flex-1 min-w-[300px] min-h-[220px] max-h-[360px] flex flex-col overflow-hidden border border-zinc-900 bg-zinc-955/45 rounded-xl shadow-md glass">
+    <div className="flex-1 min-w-[300px] min-h-[220px] max-h-[80vh] resize-y flex flex-col overflow-hidden border border-zinc-900 bg-zinc-955/45 rounded-xl shadow-md glass" style={{ height: '360px' }}>
       {/* Console Header */}
       <div className="h-10 border-b border-zinc-900 px-4 flex items-center justify-between text-[11px] bg-zinc-950/80">
         <div className="flex items-center space-x-2 text-zinc-400">
@@ -146,24 +205,8 @@ function LogConsole({ serviceName, logs, status, autoScroll, onClear }: LogConso
       {/* Console Output Logs */}
       <div 
         ref={containerRef}
-        className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/45 text-white select-text terminal-scroll"
-      >
-        {logs.length === 0 ? (
-          <div className="text-zinc-700 italic text-[10px] font-sans">No output logged yet. Run the service to capture stdout/stderr.</div>
-        ) : (
-          logs.map((log, i) => {
-            const cleanLog = stripAnsi(log).replace(/^\[(STDOUT|STDERR)\]\s?/, "");
-            let logColor = "text-zinc-200";
-            if (log.includes("[SYSTEM]")) logColor = "text-zinc-500 font-medium";
-
-            return (
-              <div key={i} className={`whitespace-pre-wrap select-text ${logColor}`}>
-                {cleanLog}
-              </div>
-            );
-          })
-        )}
-      </div>
+        className="flex-1 overflow-hidden p-2 pb-4 bg-black/45 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"
+      />
     </div>
   );
 }
@@ -1567,10 +1610,11 @@ function App() {
                       return (
                         <LogConsole
                           key={s.id}
+                          projectId={activeProj.id}
+                          serviceId={s.id}
                           serviceName={s.name}
                           logs={logs}
                           status={status}
-                          autoScroll={autoScroll}
                           onClear={() => handleClearLogs(activeProj.id, s.id)}
                         />
                       );

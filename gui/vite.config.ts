@@ -11,4 +11,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    chunkSizeWarningLimit: 5000, // Suppress warning for xterm.js (local desktop app doesn't suffer from network load times)
+  }
 })
