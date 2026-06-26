@@ -15,7 +15,6 @@ import {
   FileCode,
   Copy,
   PictureInPicture2,
-  Minus,
   ExternalLink
 } from "lucide-react";
 
@@ -59,6 +58,7 @@ declare global {
         open_pip(): Promise<boolean>;
         close_pip(): Promise<boolean>;
         minimize_pip(): Promise<boolean>;
+        resize_pip(width: number, height: number): Promise<boolean>;
         focus_main_window(): Promise<boolean>;
         get_pip_data(): Promise<{ projects: Project[]; statuses: Record<string, string> }>;
         write_to_service(projectId: string, serviceId: string, data: string): Promise<boolean>;
@@ -246,6 +246,8 @@ function PipView() {
   useEffect(() => {
     if (!isReady) return;
     fetchData();
+    // Force window resize in case the backend wasn't restarted
+    getApi().resize_pip(280, 48).catch(() => {});
     const interval = setInterval(fetchData, 1500);
     return () => clearInterval(interval);
   }, [isReady]);
@@ -272,17 +274,8 @@ function PipView() {
   const runningCount = allServices.filter(({ project: p, service: s }) => statuses[`${p.id}_${s.id}`] === "Running").length;
   const totalCount = allServices.length;
 
-  const handleStart = async (projectId: string, serviceId: string) => {
-    try { await getApi().start_service(projectId, serviceId); } catch (e) { console.error(e); }
-  };
-  const handleStop = async (projectId: string, serviceId: string) => {
-    try { await getApi().stop_service(projectId, serviceId); } catch (e) { console.error(e); }
-  };
   const handleClose = async () => {
     // Hides the PiP for this session (toggle in main app is the only true on/off)
-    try { await getApi().minimize_pip(); } catch (e) { console.error(e); }
-  };
-  const handleMinimize = async () => {
     try { await getApi().minimize_pip(); } catch (e) { console.error(e); }
   };
   const handleFocusMain = async () => {
@@ -291,148 +284,28 @@ function PipView() {
 
   return (
     <div
-      className="flex flex-col h-screen w-screen text-zinc-100 font-sans select-none overflow-hidden"
+      className="flex flex-row items-center justify-between h-screen w-screen text-zinc-100 font-sans select-none overflow-hidden px-6"
       style={{
         background: "linear-gradient(160deg, #0f0f12 0%, #09090b 100%)",
         border: "1px solid rgba(255,255,255,0.06)",
         borderRadius: "14px",
       }}
     >
-      {/* ── Header / drag handle ── */}
-      <div
-        onMouseDown={onDragStart}
-        className="flex items-center justify-between px-3 py-2.5 cursor-grab active:cursor-grabbing"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-      >
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/20 border border-primary/30">
-            <Layers className="h-3 w-3 text-primary" />
-          </div>
-          <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-300">Servo</span>
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-            {runningCount}/{totalCount}
-          </span>
-        </div>
-        <div className="flex items-center gap-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <button
-            onClick={handleFocusMain}
-            title="Open Servo"
-            className="h-5 w-5 rounded flex items-center justify-center text-zinc-600 hover:text-primary hover:bg-primary/10 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-          </button>
-          <button
-            onClick={handleMinimize}
-            title="Minimize"
-            className="h-5 w-5 rounded flex items-center justify-center text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-          >
-            <Minus className="h-3 w-3" />
-          </button>
-          <button
-            onClick={handleClose}
-            title="Hide for now"
-            className="h-5 w-5 rounded flex items-center justify-center text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
+      {/* Drag handle */}
+      <div onMouseDown={onDragStart} className="flex-1 h-full flex items-center cursor-grab active:cursor-grabbing pl-4" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+        <Layers className="h-4 w-4 text-primary opacity-80" />
       </div>
-
-      {/* ── Divider ── */}
-      <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
-
-      {/* ── Service list ── */}
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-        {totalCount === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-zinc-600">
-            <Layers className="h-6 w-6 opacity-30" />
-            <span className="text-[10px]">No projects configured</span>
-          </div>
-        ) : (
-          projects.map(project => {
-            const svcs = project.services || [];
-            if (svcs.length === 0) return null;
-            return (
-              <div key={project.id}>
-                <div className="text-[8px] font-bold tracking-widest uppercase text-zinc-600 px-1 pb-1 pt-1">
-                  {project.name}
-                </div>
-                {svcs.map(svc => {
-                  const key = `${project.id}_${svc.id}`;
-                  const running = statuses[key] === "Running";
-                  return (
-                    <div
-                      key={svc.id}
-                      className="flex items-center justify-between px-2 py-1.5 rounded-lg group transition-all"
-                      style={{
-                        background: running
-                          ? "rgba(16,185,129,0.06)"
-                          : "rgba(255,255,255,0.02)",
-                        border: running
-                          ? "1px solid rgba(16,185,129,0.15)"
-                          : "1px solid rgba(255,255,255,0.04)",
-                        marginBottom: 3,
-                      }}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className="h-1.5 w-1.5 rounded-full flex-shrink-0"
-                          style={{
-                            background: running ? "#10b981" : "#3f3f46",
-                            boxShadow: running ? "0 0 6px rgba(16,185,129,0.6)" : "none",
-                          }}
-                        />
-                        <span className="text-[11px] text-zinc-300 truncate font-medium">{svc.name}</span>
-                      </div>
-                      <button
-                        onClick={() => running ? handleStop(project.id, svc.id) : handleStart(project.id, svc.id)}
-                        className={`flex-shrink-0 h-5 w-5 rounded flex items-center justify-center transition-all ${
-                          running
-                            ? "text-red-400 hover:bg-red-500/15 hover:text-red-300"
-                            : "text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-400"
-                        }`}
-                        title={running ? "Stop" : "Start"}
-                      >
-                        {running
-                          ? <Square className="h-2.5 w-2.5 fill-current" />
-                          : <Play className="h-2.5 w-2.5 fill-current" />}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* ── Footer ── */}
-      <div
-        style={{ height: 1, background: "rgba(255,255,255,0.05)" }}
-      />
-      <div
-        className="flex items-center justify-between px-3 py-2"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <span className="text-[9px] text-zinc-600 font-medium">
-          <span className="text-emerald-400 font-bold">{runningCount}</span> running
-        </span>
-        <div className="flex gap-1.5">
-          <button
-            onClick={async () => { for (const { project: p, service: s } of allServices) { if (statuses[`${p.id}_${s.id}`] !== "Running") await handleStart(p.id, s.id); } }}
-            disabled={runningCount === totalCount || totalCount === 0}
-            className="text-[9px] px-2 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            Start All
-          </button>
-          <button
-            onClick={async () => { for (const { project: p, service: s } of allServices) { if (statuses[`${p.id}_${s.id}`] === "Running") await handleStop(p.id, s.id); } }}
-            disabled={runningCount === 0}
-            className="text-[9px] px-2 py-0.5 rounded font-bold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            Stop All
-          </button>
-        </div>
+      
+      {/* Actions */}
+      <div className="flex flex-row gap-4 items-center pr-4" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className={`h-2.5 w-2.5 rounded-full mr-1 ${runningCount > 0 ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50" : "bg-zinc-700"}`} title={`${runningCount}/${totalCount} running`} />
+        
+        <button onClick={handleFocusMain} title="Open Servo" className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-800/80 hover:bg-primary/20 hover:text-primary text-zinc-300 transition-colors">
+          <ExternalLink className="h-4 w-4" />
+        </button>
+        <button onClick={handleClose} title="Hide PiP" className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-800/80 hover:bg-destructive/20 hover:text-destructive text-zinc-300 transition-colors">
+          <X className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
@@ -459,7 +332,6 @@ function App() {
   });
   // Terminal / Logs Panel State
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [activeServiceId, setActiveServiceId] = useState<string | null>(null);
   const [projectLogs, setProjectLogs] = useState<Record<string, string[]>>({});
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -645,7 +517,6 @@ function App() {
       if (success) {
         fetchStatuses();
         setActiveProjectId(projectId);
-        setActiveServiceId(serviceId);
       }
     } catch (err) {
       console.error("Failed to start service:", err);
@@ -670,11 +541,9 @@ function App() {
       const success = await getApi().start_project(projectId);
       if (success) {
         fetchStatuses();
-        // Set first service active for logs
         const proj = projects.find(p => p.id === projectId);
         if (proj && proj.services.length > 0) {
           setActiveProjectId(projectId);
-          setActiveServiceId(proj.services[0].id);
         }
       }
     } catch (err) {
@@ -870,7 +739,6 @@ function App() {
         if (success) {
           if (activeProjectId === id) {
             setActiveProjectId(null);
-            setActiveServiceId(null);
           }
           fetchProjects();
           fetchStatuses();
@@ -1276,7 +1144,7 @@ function App() {
           </div>
 
           {/* Projects List */}
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 -mx-2 px-2 scrollbar-thin flex flex-col">
+          <div className="flex-1 overflow-y-auto space-y-2 p-2 scrollbar-thin flex flex-col">
             <span className="text-[10px] font-bold text-zinc-650 uppercase tracking-wider block mb-1 px-1">
               Projects ({filteredProjects.length})
             </span>
@@ -1306,11 +1174,6 @@ function App() {
                     key={project.id}
                     onClick={() => {
                       setActiveProjectId(project.id);
-                      if (services.length > 0) {
-                        setActiveServiceId(services[0].id);
-                      } else {
-                        setActiveServiceId(null);
-                      }
                     }}
                     className={`p-3 rounded-lg border text-left cursor-pointer transition-all duration-200 ${
                       isActive
@@ -1506,17 +1369,11 @@ function App() {
                   {projectServices.map((service) => {
                     const serviceKey = `${activeProj.id}_${service.id}`;
                     const serviceStatus = statuses[serviceKey] || "Idle";
-                    const isServiceLogsActive = activeServiceId === service.id;
 
                     return (
                       <div
                         key={service.id}
-                        onClick={() => setActiveServiceId(service.id)}
-                        className={`flex items-start justify-between p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
-                          isServiceLogsActive
-                            ? "bg-primary/5 border-primary/30 shadow-sm"
-                            : "bg-zinc-950/40 border-zinc-900/80 hover:border-zinc-805 hover:bg-zinc-900/10"
-                        }`}
+                        className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 bg-zinc-950/40 border-zinc-900/80 hover:border-zinc-805 hover:bg-zinc-900/10"
                       >
                         <div className="flex items-start space-x-3.5 truncate flex-1 mr-3">
                           <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 mt-1.5 ${
@@ -1567,17 +1424,6 @@ function App() {
                               <Play className="h-3 w-3 fill-zinc-150" />
                             </Button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setActiveServiceId(service.id)}
-                            className={`h-7 w-7 text-zinc-505 hover:text-zinc-300 ${
-                              isServiceLogsActive ? "bg-zinc-900 text-zinc-205" : ""
-                            }`}
-                            title="Logs"
-                          >
-                            <Terminal className="h-3.5 w-3.5" />
-                          </Button>
                         </div>
                       </div>
                     );
@@ -1686,7 +1532,6 @@ function App() {
                         key={`${project.id}_${service.id}`}
                         onClick={() => {
                           setActiveProjectId(project.id);
-                          setActiveServiceId(service.id);
                         }}
                         className="flex items-center justify-between p-4 hover:bg-zinc-900/20 cursor-pointer transition-colors duration-150"
                       >

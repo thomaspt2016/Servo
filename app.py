@@ -161,6 +161,14 @@ class Api:
                 text = pty.read(blocking=False)
                 if text:
                     empty_reads = 0
+                    
+                    with self.lock:
+                        if key not in self.logs:
+                            self.logs[key] = []
+                        self.logs[key].append(text)
+                        if len(self.logs[key]) > 2000:
+                            self.logs[key] = self.logs[key][-2000:]
+                            
                     escaped = json.dumps(text)[1:-1]
                     if self._window:
                         try:
@@ -200,6 +208,14 @@ class Api:
                 if not chunk:
                     break
                 text = chunk.decode('utf-8', errors='replace')
+                
+                with self.lock:
+                    if key not in self.logs:
+                        self.logs[key] = []
+                    self.logs[key].append(text)
+                    if len(self.logs[key]) > 2000:
+                        self.logs[key] = self.logs[key][-2000:]
+                        
                 escaped = json.dumps(text)[1:-1] # escape safely for JS
                 if self._window:
                     try:
@@ -355,8 +371,15 @@ class Api:
                         pty.spawn('powershell.exe', cwd=expanded_path, env=pty_env)
                         
                         self.processes[key] = pty
-                        self.logs[key] = [f"[SYSTEM] Service started in winpty embedded console"]
+                        self.logs[key] = [f"[SYSTEM] Service started in winpty embedded console\r\n"]
                         logger.info(f"Service '{name}' successfully started with winpty.")
+                        
+                        # Clear frontend terminal for the new process
+                        if self._window:
+                            try:
+                                self._window.evaluate_js(f"if (window.__terminals && window.__terminals['{key}']) window.__terminals['{key}'].reset();")
+                            except Exception:
+                                pass
                         
                         # Start background thread to drain PTY
                         t_out = threading.Thread(target=self._read_stream_winpty, args=(key, pty), daemon=True)
@@ -405,8 +428,15 @@ class Api:
                     )
                 
                     self.processes[key] = proc
-                    self.logs[key] = [f"[SYSTEM] Service started in embedded console with PID {proc.pid}"]
+                    self.logs[key] = [f"[SYSTEM] Service started in embedded console with PID {proc.pid}\r\n"]
                     logger.info(f"Service '{name}' successfully started. Process PID: {proc.pid}")
+                    
+                    # Clear frontend terminal for the new process
+                    if self._window:
+                        try:
+                            self._window.evaluate_js(f"if (window.__terminals && window.__terminals['{key}']) window.__terminals['{key}'].reset();")
+                        except Exception:
+                            pass
                     
                     if hasattr(proc, 'stdout') and proc.stdout:
                         t_out = threading.Thread(target=self._read_stream, args=(key, proc.stdout, "STDOUT"), daemon=True)
@@ -630,8 +660,8 @@ class Api:
                 html_path = os.path.join(self.base_dir, 'gui', 'dist', 'index.html')
                 pip_url = f'file:///{html_path.replace(chr(92), "/")}#pip'
 
-            pip_w = 320
-            pip_h = 480
+            pip_w = 280
+            pip_h = 48
 
             pip_win = webview.create_window(
                 'Servo PiP',
@@ -639,6 +669,7 @@ class Api:
                 js_api=self,
                 width=pip_w,
                 height=pip_h,
+                min_size=(100, 30),
                 frameless=True,
                 on_top=True,
                 background_color='#09090b',
@@ -669,7 +700,8 @@ class Api:
                         y = work.bottom - pip_h - 20
                         HWND_TOPMOST = -1
                         SWP_NOACTIVATE = 0x0010
-                        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, pip_w, pip_h, SWP_NOACTIVATE)
+                        SWP_NOSIZE = 0x0001
+                        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE)
                         logger.info(f"PiP window positioned at ({x},{y})")
 
                         # Hide immediately if main window is currently in focus
@@ -728,17 +760,8 @@ class Api:
                 main_is_minimized = bool(user32.IsIconic(main_hwnd))
                 pip_is_visible   = bool(user32.IsWindowVisible(pip_hwnd))
 
-                any_running = False
-                with self.lock:
-                    for proc in self.processes.values():
-                        if hasattr(proc, 'isalive'):
-                            if proc.isalive():
-                                any_running = True
-                                break
-                        elif hasattr(proc, 'poll'):
-                            if proc.poll() is None:
-                                any_running = True
-                                break
+                statuses = self.get_statuses()
+                any_running = "Running" in statuses.values()
 
                 if not any_running or (main_is_active and not main_is_minimized):
                     # No services running OR Main window is in the foreground — hide PiP
@@ -777,6 +800,17 @@ class Api:
             except Exception as e:
                 logger.error(f"Error minimizing PiP: {e}")
             return True
+        return False
+
+    def resize_pip(self, width: int, height: int):
+        """Resize the PiP window."""
+        if self._pip_window is not None:
+            try:
+                self._pip_window.resize(width, height)
+                logger.info(f"PiP resized to {width}x{height}")
+                return True
+            except Exception as e:
+                logger.error(f"Error resizing PiP: {e}")
         return False
 
     def focus_main_window(self):
@@ -837,7 +871,6 @@ if __name__ == '__main__':
     # Stop all running child processes when the window closes to prevent orphan hangs
     def on_closed():
         logger.info("Window closed. Stopping all running project subprocesses...")
-        api.close_pip()
         for key in list(api.processes.keys()):
             try:
                 parts = key.split('_', 1)
@@ -846,7 +879,11 @@ if __name__ == '__main__':
             except Exception as e:
                 logger.error(f"Failed to stop service {key} on window close: {e}", exc_info=True)
         
-        logger.info("Cleanup complete. Waiting for pywebview to exit gracefully...")
+        logger.info("Cleanup complete. Forcefully terminating process to prevent ghost windows...")
+        import os
+        import sys
+        sys.stdout.flush()
+        os._exit(0)
         
     window.events.closed += on_closed
 
