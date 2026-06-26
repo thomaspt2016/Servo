@@ -1,0 +1,18 @@
+# Python virtual environment
+servo/
+__pycache__/
+*.pyc
+
+# Logs & Databases
+servo.log
+storage.json
+
+# Node modules & React builds
+gui/node_modules/
+gui/dist/
+gui/.env*
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
