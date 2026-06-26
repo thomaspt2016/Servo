@@ -5,6 +5,7 @@ import signal
 import subprocess
 import threading
 import logging
+from logging.handlers import RotatingFileHandler
 import webview
 
 DEBUG = False  # Set to False to run from built assets
@@ -13,7 +14,7 @@ DEBUG = False  # Set to False to run from built assets
 
 # Setup logging configuration (writes to workspace servo.log and console stdout)
 log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'servo.log')
-file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+file_handler = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
 stream_handler = logging.StreamHandler(sys.stdout)
 
 # Filter out native Windows accessibility interop recursion errors and automation warnings from pywebview log streams
