@@ -459,6 +459,14 @@ class Api:
                 
             logger.info(f"Attempting to stop process tree for service key: {key} (PID: {proc.pid})")
             try:
+                # If the process is an interactive PTY, send Ctrl+C instead of killing the shell
+                if hasattr(proc, 'write'):
+                    proc.write('\x03')
+                    if key in self.logs:
+                        self.logs[key].append("[SYSTEM] Sent Ctrl+C to terminal. Terminal remains interactive.\r\n")
+                    logger.info(f"Sent Ctrl+C to interactive terminal for service key: {key}")
+                    return True
+
                 if os.name == 'nt':
                     # Windows: Forcefully terminate process tree
                     subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True, capture_output=True)
