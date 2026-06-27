@@ -9,7 +9,7 @@ import {
 
 // Import custom UI components
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 import type { Project, Service, FormState } from "./types";
 import { PipView } from './components/PipView';
@@ -85,12 +85,17 @@ function App() {
   
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<{projectId: string, serviceId: string} | null>(null);
 
-  // Dialog State
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [dialogError, setDialogError] = useState("");
   const [npmScripts, setNpmScripts] = useState<Record<string, string[]>>({});
+
+  const handleSelectProject = (id: string | null) => {
+    setActiveProjectId(id);
+    setIsDialogOpen(false);
+  };
 
   const fetchNpmScripts = async (serviceId: string, folderPath: string) => {
     if (!folderPath) {
@@ -377,7 +382,13 @@ function App() {
 
   const handleDeleteServiceClick = async (projectId: string, serviceId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this service?")) return;
+    setServiceToDelete({ projectId, serviceId });
+  };
+
+  const confirmDeleteService = async () => {
+    if (!serviceToDelete) return;
+    const { projectId, serviceId } = serviceToDelete;
+    
     try {
       const proj = projects.find(p => p.id === projectId);
       if (!proj) return;
@@ -389,6 +400,8 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to delete service:", err);
+    } finally {
+      setServiceToDelete(null);
     }
   };
 
@@ -449,14 +462,15 @@ function App() {
         command: s.command.trim(),
         venv_path: s.venv_path.trim() || undefined,
         use_venv: s.use_venv,
-        language: s.language || "Python"
+        language: s.language || "Python",
+        target_port: s.target_port
       }))
     };
 
     try {
       const success = await getApi().save_project(projectToSave);
       if (success) {
-        setIsDialogOpen(false);
+        setTimeout(() => setIsDialogOpen(false), 150);
         fetchProjects();
         fetchStatuses();
       } else {
@@ -518,6 +532,7 @@ function App() {
           venv_path: s.venv_path || "",
           use_venv: s.use_venv !== false,
           language: s.language || "Python",
+          target_port: s.target_port,
           mode
         };
       })
@@ -572,6 +587,7 @@ function App() {
         venv_path: s.venv_path || "",
         use_venv: s.use_venv !== false,
         language: s.language || "Python",
+        target_port: s.target_port,
         mode
       };
     });
@@ -935,7 +951,7 @@ function App() {
           filteredProjects={filteredProjects}
           loading={loading}
           activeProjectId={activeProjectId}
-          setActiveProjectId={setActiveProjectId}
+          setActiveProjectId={handleSelectProject}
           statuses={statuses}
           handleNewClick={handleNewClick}
           handleEditClick={handleEditClick}
@@ -1066,6 +1082,7 @@ function App() {
                   handleInstallDependencies={handleInstallDependencies}
                   autoScroll={autoScroll}
                   setAutoScroll={setAutoScroll}
+                  onBack={() => setActiveProjectId(null)}
                 />
               </Suspense>
             );
@@ -1081,7 +1098,7 @@ function App() {
               handleNewClick={handleNewClick}
               fetchProjects={fetchProjects}
               fetchStatuses={fetchStatuses}
-              setActiveProjectId={setActiveProjectId}
+              setActiveProjectId={handleSelectProject}
               handleStopService={handleStopService}
             />
           </Suspense>
@@ -1114,20 +1131,34 @@ function App() {
       </main>
 
       <Dialog open={!!projectToDelete} onOpenChange={(open) => !open && setProjectToDelete(null)}>
-        <DialogContent className="border-zinc-800 bg-zinc-950 text-zinc-200">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete Project</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this project? All running services in it will be permanently stopped and removed from the dashboard.
-            </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="mt-4">
-            <Button variant="ghost" onClick={() => setProjectToDelete(null)} className="text-zinc-400 hover:text-zinc-200">
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDeleteProject}>
-              Delete
-            </Button>
+          <div className="text-sm text-zinc-300 py-2">
+            Are you sure you want to permanently delete this project configuration?
+            <br />
+            This will not delete the project files on your drive, only the Servo configuration.
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setProjectToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDeleteProject}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Service Dialog */}
+      <Dialog open={!!serviceToDelete} onOpenChange={(open) => !open && setServiceToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Service</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-zinc-300 py-2">
+            Are you sure you want to permanently delete this service from the stack?
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setServiceToDelete(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDeleteService}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

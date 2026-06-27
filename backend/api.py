@@ -126,6 +126,13 @@ class Api:
         logger.info(f"Request to install dependencies for service ID: {service_id}")
         return self._process_manager.install_dependencies(project_id, service_id)
 
+    def resolve_port_conflict(self, port):
+        logger.info(f"Resolving port conflict for port {port}")
+        return self._process_manager.resolve_port_conflict(port)
+
+    def check_port_conflict(self, port):
+        return self._process_manager.check_port_conflict(port)
+
     def start_raw_terminal(self, terminal_id, cwd=None):
         return self._process_manager.start_raw_terminal(terminal_id, cwd)
 

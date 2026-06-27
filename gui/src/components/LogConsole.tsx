@@ -74,6 +74,14 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
       }
     });
 
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.ctrlKey && e.code === 'KeyC' && term.hasSelection()) {
+        navigator.clipboard.writeText(term.getSelection());
+        return false;
+      }
+      return true;
+    });
+
     return () => {
       resizeObserver.disconnect();
       if (window.__terminals) {

@@ -276,13 +276,25 @@ export default function ProjectConfigDialog({
                         Target Port (Optional)
                       </label>
                       <Input
-                        type="number"
-                        placeholder="e.g. 3000"
+                        type="text"
+                        placeholder="e.g. 5173"
                         value={service.target_port || ""}
                         onChange={(e) => {
                           const updated = [...formState.services];
-                          updated[index].target_port = e.target.value;
+                          // Only allow digits
+                          updated[index].target_port = e.target.value.replace(/[^0-9]/g, '');
                           setFormState({ ...formState, services: updated });
+                        }}
+                        onBlur={(e) => {
+                          const val = e.target.value;
+                          if (val !== "") {
+                            const num = parseInt(val, 10);
+                            if (num < 5000) {
+                              const updated = [...formState.services];
+                              updated[index].target_port = "5000";
+                              setFormState({ ...formState, services: updated });
+                            }
+                          }
                         }}
                       />
                     </div>
@@ -620,7 +632,11 @@ export default function ProjectConfigDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" className="bg-primary text-zinc-100 hover:bg-primary/90">
+            <Button 
+              type="submit" 
+              className="bg-primary text-zinc-100 hover:bg-primary/90"
+              onClick={(e) => { e.stopPropagation(); }}
+            >
               {isEditMode ? "Update Project" : "Add Project"}
             </Button>
           </div>

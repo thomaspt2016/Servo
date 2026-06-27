@@ -90,14 +90,28 @@ class ProcessManager:
                     mem = p.memory_info().rss
                     cpu = p.cpu_percent(interval=None)
                     
+                    listening_ports = []
+                    try:
+                        for c in p.connections(kind='inet'):
+                            if c.status == psutil.CONN_LISTEN:
+                                listening_ports.append(c.laddr.port)
+                    except (psutil.AccessDenied, psutil.ZombieProcess):
+                        pass
+
                     for child in p.children(recursive=True):
                         c_pid = child.pid
                         if c_pid not in process_cache:
                             process_cache[c_pid] = child
                         active_pids.add(c_pid)
                         if child.name().lower() != 'conhost.exe':
-                            mem += process_cache[c_pid].memory_info().rss
-                            cpu += process_cache[c_pid].cpu_percent(interval=None)
+                            try:
+                                mem += process_cache[c_pid].memory_info().rss
+                                cpu += process_cache[c_pid].cpu_percent(interval=None)
+                                for c in process_cache[c_pid].connections(kind='inet'):
+                                    if c.status == psutil.CONN_LISTEN:
+                                        listening_ports.append(c.laddr.port)
+                            except (psutil.AccessDenied, psutil.ZombieProcess):
+                                pass
                     
                     # psutil returns CPU per-core (e.g., 200% for 2 cores). Divide by logical cores to scale to 100%
                     total_cores = psutil.cpu_count() or 1
@@ -107,6 +121,12 @@ class ProcessManager:
                         "cpu": round(normalized_cpu, 1),
                         "memory": round(mem / (1024 * 1024), 1)
                     }
+                    
+                    if listening_ports:
+                        with self.lock:
+                            # Only overwrite if there wasn't a hardcoded active_port from start_service,
+                            # or just always prefer the real listening port
+                            self.active_ports[key] = listening_ports[0]
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
                 except Exception as e:
@@ -377,14 +397,9 @@ class ProcessManager:
                         target_port = int(target_port)
                         actual_port = target_port
                         import socket
-                        # Find an available port
-                        for _ in range(100):
-                            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                                if s.connect_ex(('localhost', actual_port)) != 0:
-                                    break # Port is free
-                            actual_port += 1
+                        # We no longer auto-increment the port. Strict port binding is required for inter-service comms.
                         
-                        logger.info(f"Target port was {target_port}, dynamically allocated port {actual_port} for service '{name}'")
+                        logger.info(f"Target port configured as {target_port} for service '{name}'")
                         process_env['PORT'] = str(actual_port)
                         # Replace {PORT} in the command if specified
                         command = command.replace("{PORT}", str(actual_port))
@@ -568,7 +583,7 @@ class ProcessManager:
                 # If the process is an interactive PTY, send Ctrl+C instead of killing the shell
                 if hasattr(proc, 'write'):
                     self.intentionally_stopped.add(key)
-                    proc.write('\x03')
+                    self.write_to_service(project_id, service_id, '\x03')
                     if key in self.logs:
                         self.logs[key].append("[SYSTEM] Sent Ctrl+C to terminal. Terminal remains interactive.\r\n")
                     logger.info(f"Sent Ctrl+C to interactive terminal for service key: {key}")
@@ -638,13 +653,76 @@ class ProcessManager:
                                 
                         if poll is None:
                             statuses[key] = "Running"
-                        elif poll == 0:
-                            statuses[key] = "Idle"
                         else:
-                            statuses[key] = "Error"
+                            statuses[key] = "Error" if poll != 0 else "Idle"
+                            # If it stopped, clean up its port from active_ports
+                            if key in self.active_ports:
+                                del self.active_ports[key]
                     else:
+                        # Process hasn't been started in this session
+                        # But wait, is there a target_port in config?
                         statuses[key] = "Idle"
+                        
             return statuses
+
+    def check_port_conflict(self, port):
+        """Finds any process listening on the given port and returns its info without killing it."""
+        try:
+            port = int(port)
+        except ValueError:
+            return {"success": False, "message": "Invalid port number."}
+
+        conflicting_processes = []
+        try:
+            for p in psutil.process_iter(['pid', 'name']):
+                try:
+                    for c in p.connections(kind='inet'):
+                        if c.status == psutil.CONN_LISTEN and c.laddr.port == port:
+                            conflicting_processes.append({"pid": p.pid, "name": p.info['name']})
+                            break
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+        except Exception as e:
+            return {"success": False, "message": f"Error inspecting processes: {str(e)}"}
+
+        if not conflicting_processes:
+            return {"success": True, "conflict": False}
+        
+        return {
+            "success": True, 
+            "conflict": True,
+            "processes": conflicting_processes
+        }
+
+    def resolve_port_conflict(self, port):
+        """Finds any process listening on the given port and kills it."""
+        try:
+            port = int(port)
+        except ValueError:
+            return {"success": False, "message": "Invalid port number."}
+
+        killed_processes = []
+        try:
+            for p in psutil.process_iter(['pid', 'name']):
+                try:
+                    for c in p.connections(kind='inet'):
+                        if c.status == psutil.CONN_LISTEN and c.laddr.port == port:
+                            p.kill()
+                            killed_processes.append({"pid": p.pid, "name": p.info['name']})
+                            break
+                except (psutil.AccessDenied, psutil.NoSuchProcess):
+                    continue
+        except Exception as e:
+            return {"success": False, "message": f"Error inspecting processes: {str(e)}"}
+
+        if not killed_processes:
+            return {"success": True, "message": f"No processes found listening on port {port}."}
+        
+        return {
+            "success": True, 
+            "message": f"Killed {len(killed_processes)} process(es) on port {port}.",
+            "killed": killed_processes
+        }
 
     def get_dependency_statuses(self):
         deps_status = {}

@@ -54,6 +54,8 @@ declare global {
         stop_project(projectId: string): Promise<boolean>;
         get_statuses(): Promise<Record<string, string>>;
         get_dependency_statuses(): Promise<Record<string, string | null>>;
+        check_port_conflict(port: number | string): Promise<{success: boolean, conflict?: boolean, message?: string, processes?: {pid: number, name: string}[]}>;
+        resolve_port_conflict(port: number | string): Promise<{success: boolean, message: string, killed?: {pid: number, name: string}[]}>;
         get_metrics(): Promise<Record<string, {cpu: number, memory: number}>>;
         get_active_ports(): Promise<Record<string, number>>;
         get_logs(projectId: string, serviceId: string): Promise<string[]>;

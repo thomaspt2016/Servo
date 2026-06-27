@@ -1,9 +1,10 @@
-import React from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal, Package } from "lucide-react";
+import React, { useState } from "react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LogConsole } from "./LogConsole";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { Project } from "../types";
 
 export interface ProjectWorkspaceProps {
@@ -24,6 +25,7 @@ export interface ProjectWorkspaceProps {
   handleInstallDependencies: (projectId: string, serviceId: string) => void;
   autoScroll: boolean;
   setAutoScroll: (val: boolean) => void;
+  onBack?: () => void;
 }
 
 export default function ProjectWorkspace({
@@ -44,9 +46,14 @@ export default function ProjectWorkspace({
   handleInstallDependencies,
   autoScroll,
   setAutoScroll,
+  onBack,
 }: ProjectWorkspaceProps) {
   const projectServices = activeProj.services || [];
   const anyRunning = projectServices.some(s => statuses[`${activeProj.id}_${s.id}`] === "Running");
+
+  const [alertConfig, setAlertConfig] = useState<{ open: boolean, title: string, message: React.ReactNode }>({ open: false, title: "", message: "" });
+  const [confirmConfig, setConfirmConfig] = useState<{ open: boolean, title: string, message: React.ReactNode, onConfirm: () => void }>({ open: false, title: "", message: "", onConfirm: () => {} });
+
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6">
@@ -55,6 +62,11 @@ export default function ProjectWorkspace({
         <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1 pr-4 truncate flex-1">
             <div className="flex items-center space-x-3">
+              {onBack && (
+                <Button variant="ghost" size="icon" onClick={onBack} className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 -ml-1">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
               <h3 className="text-lg font-bold truncate text-zinc-150">
                 {activeProj.name}
               </h3>
@@ -234,6 +246,72 @@ export default function ProjectWorkspace({
                   <Package className="h-3 w-3" />
                 </Button>
                 
+                {serviceStatus !== "Running" && service.target_port && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (window.pywebview && window.pywebview.api) {
+                        try {
+                           const check = await window.pywebview.api.check_port_conflict(service.target_port!);
+                           if (!check.success) {
+                             setAlertConfig({ open: true, title: "Check Failed", message: `Failed to check port: ${check.message}` });
+                             return;
+                           }
+                           
+                           if (!check.conflict) {
+                             setAlertConfig({ open: true, title: "Port Free", message: `Port ${service.target_port} is currently free. No conflict found.` });
+                             return;
+                           }
+
+                           const processList = check.processes ? check.processes.map(p => `${p.name} (PID: ${p.pid})`).join(', ') : 'Unknown process';
+                           
+                           setConfirmConfig({
+                             open: true,
+                             title: "Port Conflict Detected",
+                             message: (
+                               <div className="space-y-2">
+                                 <p>Port {service.target_port} is currently in use by:</p>
+                                 <pre className="p-2 bg-zinc-900 rounded text-xs overflow-auto">{processList}</pre>
+                                 <p className="text-destructive font-semibold">Are you sure you want to forcibly kill these processes?</p>
+                               </div>
+                             ),
+                             onConfirm: async () => {
+                               try {
+                                 const res = await window.pywebview!.api!.resolve_port_conflict(service.target_port!);
+                                 if (res.success) {
+                                   const killedStr = res.killed && res.killed.length > 0 ? res.killed.map((k: any) => `- ${k.name} (PID: ${k.pid})`).join('\n') : "";
+                                   setAlertConfig({
+                                     open: true,
+                                     title: "Success",
+                                     message: (
+                                       <div className="space-y-2">
+                                         <p>{res.message}</p>
+                                         {killedStr && <pre className="p-2 bg-zinc-900 rounded text-xs">{killedStr}</pre>}
+                                       </div>
+                                     )
+                                   });
+                                 } else {
+                                   setAlertConfig({ open: true, title: "Failed", message: `Failed: ${res.message}` });
+                                 }
+                               } catch (err: any) {
+                                 setAlertConfig({ open: true, title: "Error", message: `Error: ${err}` });
+                               }
+                             }
+                           });
+                        } catch (err: any) {
+                           setAlertConfig({ open: true, title: "Error", message: `Error: ${err}` });
+                        }
+                      }
+                    }}
+                    className="h-7 w-7 text-amber-500/80 hover:text-amber-400 hover:bg-amber-900/30"
+                    title={`Resolve port conflict (Kill process on port ${service.target_port})`}
+                  >
+                    <Ban className="h-3 w-3" />
+                  </Button>
+                )}
+                
                 <Button
                   variant="ghost"
                   size="icon"
@@ -295,6 +373,44 @@ export default function ProjectWorkspace({
           })}
         </div>
       </div>
+
+      <Dialog open={alertConfig.open} onOpenChange={(open) => setAlertConfig(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{alertConfig.title}</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-zinc-300 py-2">
+            {alertConfig.message}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setAlertConfig(prev => ({ ...prev, open: false }))}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmConfig.open} onOpenChange={(open) => setConfirmConfig(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmConfig.title}</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-zinc-300 py-2">
+            {confirmConfig.message}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmConfig(prev => ({ ...prev, open: false }))}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => {
+              setConfirmConfig(prev => ({ ...prev, open: false }));
+              confirmConfig.onConfirm();
+            }}>
+              Confirm Kill
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
