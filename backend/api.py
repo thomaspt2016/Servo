@@ -119,7 +119,12 @@ class Api:
         return True
 
     def start_service(self, project_id, service_id):
+        logger.info(f"Request to start service ID: {service_id} for project ID: {project_id}")
         return self._process_manager.start_service(project_id, service_id)
+
+    def install_dependencies(self, project_id, service_id):
+        logger.info(f"Request to install dependencies for service ID: {service_id}")
+        return self._process_manager.install_dependencies(project_id, service_id)
 
     def start_raw_terminal(self, terminal_id, cwd=None):
         return self._process_manager.start_raw_terminal(terminal_id, cwd)
@@ -152,8 +157,14 @@ class Api:
     def get_statuses(self):
         return self._process_manager.get_statuses()
 
+    def get_dependency_statuses(self):
+        return self._process_manager.get_dependency_statuses()
+
     def get_metrics(self):
         return self._process_manager.get_metrics()
+
+    def get_active_ports(self):
+        return self._process_manager.get_active_ports()
 
     def get_logs(self, project_id, service_id):
         return self._process_manager.get_logs(project_id, service_id)

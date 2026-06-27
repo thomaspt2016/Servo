@@ -10,10 +10,12 @@ from backend.logger import logger
 
 class ProcessManager:
     def __init__(self, get_projects_callback, api=None):
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.processes = {}
+        self.active_ports = {}
         self.logs = {}
         self.intentionally_stopped = set()
+        self.installing_deps = set()
         self.last_statuses = {}
         self.window = None
         self.get_projects = get_projects_callback
@@ -27,6 +29,11 @@ class ProcessManager:
         logger.info(f"Triggering crash notification for key: {key}")
         if key in self.intentionally_stopped:
             logger.info(f"Skipping notification for {key} because it was intentionally stopped.")
+            return
+            
+        if key in self.installing_deps:
+            logger.info(f"Skipping notification for {key} because it just finished installing dependencies.")
+            self.installing_deps.discard(key)
             return
             
         proj_name = "Embedded Terminal"
@@ -123,6 +130,53 @@ class ProcessManager:
                         self._trigger_crash_notification(k)
                 self.last_statuses[k] = status
 
+    def install_dependencies(self, project_id, service_id):
+        key = f"{project_id}_{service_id}"
+        with self.lock:
+            projects = self.get_projects()
+            project = next((p for p in projects if p.get('id') == project_id), None)
+            if not project:
+                return False
+            service = next((s for s in project.get('services', []) if s.get('id') == service_id), None)
+            if not service:
+                return False
+            
+            language = service.get('language', '')
+            svc_path = os.path.expanduser(service.get('path', ''))
+            
+            if language == 'Node.js':
+                if os.path.exists(os.path.join(svc_path, 'yarn.lock')):
+                    cmd = "yarn install"
+                elif os.path.exists(os.path.join(svc_path, 'pnpm-lock.yaml')):
+                    cmd = "pnpm install"
+                else:
+                    cmd = "npm install"
+            elif language == 'Python':
+                if os.path.exists(os.path.join(svc_path, 'requirements.txt')):
+                    cmd = "python -m pip install -r requirements.txt"
+                elif os.path.exists(os.path.join(svc_path, 'pyproject.toml')) or os.path.exists(os.path.join(svc_path, 'setup.py')):
+                    cmd = "python -m pip install ."
+                elif os.path.exists(os.path.join(svc_path, 'Pipfile')):
+                    cmd = "pipenv install"
+                else:
+                    cmd = "echo [Servo] No requirements.txt, pyproject.toml, or Pipfile found."
+            elif language == 'Rust':
+                cmd = "cargo build"
+            elif language == 'Go':
+                cmd = "go mod tidy"
+            else:
+                return False
+                
+            # If the process is currently running a server (busy), we should probably not interrupt it,
+            # but start_service handles the busy check and ignores start if busy.
+            
+            self.installing_deps.add(key)
+            
+            # Start the service with the install command
+            
+            # Start the service with the install command
+            return self.start_service(project_id, service_id, override_command=cmd)
+
     def write_to_service(self, project_id, service_id, data):
         key = f"{project_id}_{service_id}"
         if project_id == "terminal":
@@ -201,6 +255,8 @@ class ProcessManager:
             with self.lock:
                 if key in self.processes and self.processes[key] == pty:
                     del self.processes[key]
+                    if key in self.active_ports:
+                        del self.active_ports[key]
                     if key in self.logs:
                         self.logs[key].append("[SYSTEM] Console session closed.")
                 
@@ -238,13 +294,15 @@ class ProcessManager:
                     proc = self.processes[key]
                     if hasattr(proc, 'stdout') and proc.stdout == stream:
                         del self.processes[key]
+                        if key in self.active_ports:
+                            del self.active_ports[key]
                         if key in self.logs:
                             self.logs[key].append("[SYSTEM] Process stream closed.")
                 
                 if key in self.intentionally_stopped:
                     self.intentionally_stopped.discard(key)
 
-    def start_service(self, project_id, service_id):
+    def start_service(self, project_id, service_id, override_command=None):
         key = f"{project_id}_{service_id}"
         with self.lock:
             projects = self.get_projects()
@@ -259,7 +317,7 @@ class ProcessManager:
                 return False
                 
             path = service.get('path')
-            command = service.get('command')
+            command = override_command if override_command else service.get('command')
             name = f"{project.get('name')} - {service.get('name')}"
             venv_path = service.get('venv_path')
             use_venv = service.get('use_venv', True)
@@ -310,6 +368,33 @@ class ProcessManager:
                 
                 # Setup custom environment variables for virtual environments
                 process_env = os.environ.copy()
+                
+                # Dynamic Port Allocation
+                target_port = service.get('target_port')
+                actual_port = None
+                if target_port:
+                    try:
+                        target_port = int(target_port)
+                        actual_port = target_port
+                        import socket
+                        # Find an available port
+                        for _ in range(100):
+                            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                                if s.connect_ex(('localhost', actual_port)) != 0:
+                                    break # Port is free
+                            actual_port += 1
+                        
+                        logger.info(f"Target port was {target_port}, dynamically allocated port {actual_port} for service '{name}'")
+                        process_env['PORT'] = str(actual_port)
+                        # Replace {PORT} in the command if specified
+                        command = command.replace("{PORT}", str(actual_port))
+                        
+                        # Store the actual port in the active_ports dictionary
+                        self.active_ports[key] = actual_port
+                        
+                    except ValueError:
+                        logger.warning(f"Invalid target_port '{target_port}' for service '{name}', ignoring.")
+
                 if venv_path and use_venv:
                     expanded_venv = os.path.expanduser(venv_path)
                     venv_bin = os.path.join(expanded_venv, 'Scripts') if os.name == 'nt' else os.path.join(expanded_venv, 'bin')
@@ -506,6 +591,8 @@ class ProcessManager:
                 
                 if key in self.processes:
                     del self.processes[key]
+                    if key in self.active_ports:
+                        del self.active_ports[key]
                 logger.info(f"Successfully stopped process tree for service key: {key}")
                 return True
             except Exception as e:
@@ -559,9 +646,56 @@ class ProcessManager:
                         statuses[key] = "Idle"
             return statuses
 
+    def get_dependency_statuses(self):
+        deps_status = {}
+        projects = self.get_projects()
+        for p in projects:
+            p_id = p.get('id')
+            for s in p.get('services', []):
+                s_id = s.get('id')
+                key = f"{p_id}_{s_id}"
+                
+                language = s.get('language', '')
+                svc_path = os.path.expanduser(s.get('path', ''))
+                
+                has_deps = None
+                if language == 'Node.js':
+                    pkg_json = os.path.join(svc_path, 'package.json')
+                    if os.path.exists(pkg_json):
+                        has_deps = pkg_json
+                elif language == 'Python':
+                    reqs = os.path.join(svc_path, 'requirements.txt')
+                    pyproj = os.path.join(svc_path, 'pyproject.toml')
+                    setup = os.path.join(svc_path, 'setup.py')
+                    pipfile = os.path.join(svc_path, 'Pipfile')
+                    
+                    if os.path.exists(reqs):
+                        has_deps = reqs
+                    elif os.path.exists(pyproj):
+                        has_deps = pyproj
+                    elif os.path.exists(setup):
+                        has_deps = setup
+                    elif os.path.exists(pipfile):
+                        has_deps = pipfile
+                elif language == 'Rust':
+                    cargo = os.path.join(svc_path, 'Cargo.toml')
+                    if os.path.exists(cargo):
+                        has_deps = cargo
+                elif language == 'Go':
+                    gomod = os.path.join(svc_path, 'go.mod')
+                    if os.path.exists(gomod):
+                        has_deps = gomod
+                
+                deps_status[key] = has_deps
+        return deps_status
+
     def get_metrics(self):
         with self.lock:
             return self.metrics.copy()
+
+    def get_active_ports(self):
+        with self.lock:
+            return self.active_ports.copy()
 
     def get_logs(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
@@ -577,7 +711,7 @@ class ProcessManager:
             
         with self.lock:
             if key in self.logs:
-                self.logs[key] = ["[SYSTEM] Logs cleared."]
+                self.logs[key] = []
             logger.info(f"Cleared virtual console logs buffer for {key}")
             return True
 

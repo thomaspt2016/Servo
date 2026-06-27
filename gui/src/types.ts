@@ -7,6 +7,7 @@ export interface Service {
   use_venv?: boolean;
   language?: string;
   description?: string;
+  target_port?: string | number;
 }
 
 export interface Project {
@@ -27,6 +28,7 @@ export interface FormService {
   use_venv: boolean;
   language?: string;
   mode?: "file" | "npm" | "custom";
+  target_port?: string | number;
 }
 
 export interface FormState {
@@ -45,12 +47,15 @@ declare global {
         save_project(project: Project): Promise<boolean>;
         delete_project(id: string): Promise<boolean>;
         start_service(projectId: string, serviceId: string): Promise<boolean>;
+        install_dependencies(projectId: string, serviceId: string): Promise<boolean>;
         start_raw_terminal(terminalId: string, cwd?: string | null): Promise<boolean>;
         stop_service(projectId: string, serviceId: string): Promise<boolean>;
         start_project(projectId: string): Promise<boolean>;
         stop_project(projectId: string): Promise<boolean>;
         get_statuses(): Promise<Record<string, string>>;
+        get_dependency_statuses(): Promise<Record<string, string | null>>;
         get_metrics(): Promise<Record<string, {cpu: number, memory: number}>>;
+        get_active_ports(): Promise<Record<string, number>>;
         get_logs(projectId: string, serviceId: string): Promise<string[]>;
         clear_logs(projectId: string, serviceId: string): Promise<boolean>;
         pick_folder(default_dir?: string | null): Promise<string | null>;

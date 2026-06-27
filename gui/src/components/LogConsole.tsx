@@ -18,13 +18,12 @@ interface LogConsoleProps {
   serviceName: string;
   logs: string[];
   status: string;
-  onClear?: () => void;
   onKill?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
-export function LogConsole({ projectId, serviceId, serviceName, logs, status, onClear, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
+export function LogConsole({ projectId, serviceId, serviceName, logs, status, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
@@ -153,14 +152,6 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
                 className="text-destructive/80 hover:text-destructive transition-colors text-[10px] mr-2"
               >
                 Kill Process
-              </button>
-            )}
-            {onClear && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onClear(); }}
-                className="text-zinc-555 hover:text-zinc-300 transition-colors text-[10px]"
-              >
-                Clear
               </button>
             )}
           </div>

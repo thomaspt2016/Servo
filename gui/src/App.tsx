@@ -63,6 +63,8 @@ function App() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [dependencyStatuses, setDependencyStatuses] = useState<Record<string, string | null>>({});
+  const [activePorts, setActivePorts] = useState<Record<string, number>>({});
   const [metrics, setMetrics] = useState<Record<string, {cpu: number, memory: number}>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -186,6 +188,7 @@ function App() {
     }
     const interval = setInterval(() => {
       fetchStatuses();
+      fetchActivePorts();
       fetchMetrics();
     }, 1000);
     return () => clearInterval(interval);
@@ -268,8 +271,23 @@ function App() {
     try {
       const data = await getApi().get_statuses();
       setStatuses(data);
+      if (getApi().get_dependency_statuses) {
+        const depData = await getApi().get_dependency_statuses();
+        setDependencyStatuses(depData);
+      }
     } catch (err) {
       console.error("Error fetching statuses:", err);
+    }
+  };
+
+  const fetchActivePorts = async () => {
+    try {
+      if (getApi().get_active_ports) {
+        const data = await getApi().get_active_ports();
+        setActivePorts(data);
+      }
+    } catch (err) {
+      console.error("Error fetching active ports:", err);
     }
   };
 
@@ -292,6 +310,18 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to start service:", err);
+    }
+  };
+
+  const handleInstallDependencies = async (projectId: string, serviceId: string) => {
+    try {
+      const success = await getApi().install_dependencies(projectId, serviceId);
+      if (success) {
+        fetchStatuses();
+        setActiveProjectId(projectId);
+      }
+    } catch (err) {
+      console.error("Failed to install dependencies:", err);
     }
   };
 
@@ -1019,8 +1049,10 @@ function App() {
             return (
               <Suspense fallback={<div className="p-8 text-zinc-500">Loading workspace...</div>}>
                 <ProjectWorkspace
-                  activeProj={activeProj}
+                  activeProj={projects.find(p => p.id === activeProjectId)!}
                   statuses={statuses}
+                  dependencyStatuses={dependencyStatuses}
+                  activePorts={activePorts}
                   metrics={metrics}
                   projectLogs={projectLogs}
                   handleStopProject={handleStopProject}
@@ -1031,6 +1063,7 @@ function App() {
                   handleDeleteServiceClick={handleDeleteServiceClick}
                   handleStopService={handleStopService}
                   handleStartService={handleStartService}
+                  handleInstallDependencies={handleInstallDependencies}
                   autoScroll={autoScroll}
                   setAutoScroll={setAutoScroll}
                 />

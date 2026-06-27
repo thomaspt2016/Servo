@@ -1,5 +1,5 @@
 import React from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal } from "lucide-react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import type { Project } from "../types";
 export interface ProjectWorkspaceProps {
   activeProj: Project;
   statuses: Record<string, string>;
+  dependencyStatuses: Record<string, string | null>;
+  activePorts: Record<string, number>;
   metrics?: Record<string, {cpu: number, memory: number}>;
   projectLogs: Record<string, string[]>;
   handleStopProject: (projectId: string, e?: React.MouseEvent) => void;
@@ -19,6 +21,7 @@ export interface ProjectWorkspaceProps {
   handleDeleteServiceClick: (projectId: string, serviceId: string, e: React.MouseEvent) => void;
   handleStopService: (projectId: string, serviceId: string) => void;
   handleStartService: (projectId: string, serviceId: string) => void;
+  handleInstallDependencies: (projectId: string, serviceId: string) => void;
   autoScroll: boolean;
   setAutoScroll: (val: boolean) => void;
 }
@@ -26,6 +29,8 @@ export interface ProjectWorkspaceProps {
 export default function ProjectWorkspace({
   activeProj,
   statuses,
+  dependencyStatuses,
+  activePorts,
   metrics,
   projectLogs,
   handleStopProject,
@@ -36,6 +41,7 @@ export default function ProjectWorkspace({
   handleDeleteServiceClick,
   handleStopService,
   handleStartService,
+  handleInstallDependencies,
   autoScroll,
   setAutoScroll,
 }: ProjectWorkspaceProps) {
@@ -152,6 +158,11 @@ export default function ProjectWorkspace({
                         {service.language}
                       </span>
                     )}
+                    {serviceStatus === "Running" && activePorts[serviceKey] && (
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded flex items-center shadow-sm">
+                        📍 :{activePorts[serviceKey]}
+                      </span>
+                    )}
                   </span>
                   {service.description && (
                     <span className="text-[11px] text-zinc-550 block truncate" title={service.description}>
@@ -207,6 +218,21 @@ export default function ProjectWorkspace({
                 )}
                 
                 <div className="w-px h-4 bg-zinc-850 mx-1"></div>
+                
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={!dependencyStatuses[`${activeProj.id}_${service.id}`]}
+                  onClick={(e) => { e.stopPropagation(); handleInstallDependencies(activeProj.id, service.id); }}
+                  className={`h-7 w-7 transition-all ${
+                    dependencyStatuses[`${activeProj.id}_${service.id}`]
+                      ? 'text-emerald-100 bg-emerald-600/30 hover:bg-emerald-600/50 hover:text-emerald-50'
+                      : 'text-red-400/50 bg-red-950/20 opacity-50 cursor-not-allowed'
+                  }`}
+                  title={dependencyStatuses[`${activeProj.id}_${service.id}`] ? `Install Dependencies (${dependencyStatuses[`${activeProj.id}_${service.id}`]})` : "No requirements file found"}
+                >
+                  <Package className="h-3 w-3" />
+                </Button>
                 
                 <Button
                   variant="ghost"

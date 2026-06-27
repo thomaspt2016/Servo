@@ -254,20 +254,38 @@ export default function ProjectConfigDialog({
                     </div>
                   </div>
 
-                  {/* Service Description */}
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-semibold text-zinc-400">
-                      Service Description
-                    </label>
-                    <Input
-                      placeholder={service.language === "Node.js" ? "Briefly describe what this service does (e.g. Node API / React Dev Server)" : "Briefly describe what this service does (e.g. handles payment gateway webhooks)"}
-                      value={service.description || ""}
-                      onChange={(e) => {
-                        const updated = [...formState.services];
-                        updated[index].description = e.target.value;
-                        setFormState({ ...formState, services: updated });
-                      }}
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Service Description */}
+                    <div className="space-y-1.5 col-span-2 md:col-span-1">
+                      <label className="text-[11px] font-semibold text-zinc-400">
+                        Service Description
+                      </label>
+                      <Input
+                        placeholder={service.language === "Node.js" ? "Briefly describe what this service does (e.g. Node API / React Dev Server)" : "Briefly describe what this service does (e.g. handles payment gateway webhooks)"}
+                        value={service.description || ""}
+                        onChange={(e) => {
+                          const updated = [...formState.services];
+                          updated[index].description = e.target.value;
+                          setFormState({ ...formState, services: updated });
+                        }}
+                      />
+                    </div>
+                    {/* Target Port */}
+                    <div className="space-y-1.5 col-span-2 md:col-span-1">
+                      <label className="text-[11px] font-semibold text-zinc-400">
+                        Target Port (Optional)
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="e.g. 3000"
+                        value={service.target_port || ""}
+                        onChange={(e) => {
+                          const updated = [...formState.services];
+                          updated[index].target_port = e.target.value;
+                          setFormState({ ...formState, services: updated });
+                        }}
+                      />
+                    </div>
                   </div>
 
                   {service.language === "Node.js" ? (
