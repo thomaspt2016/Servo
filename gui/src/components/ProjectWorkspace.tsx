@@ -9,6 +9,7 @@ import type { Project } from "../types";
 export interface ProjectWorkspaceProps {
   activeProj: Project;
   statuses: Record<string, string>;
+  metrics?: Record<string, {cpu: number, memory: number}>;
   projectLogs: Record<string, string[]>;
   handleStopProject: (projectId: string, e?: React.MouseEvent) => void;
   handleStartProject: (projectId: string, e?: React.MouseEvent) => void;
@@ -19,12 +20,12 @@ export interface ProjectWorkspaceProps {
   handleStartService: (projectId: string, serviceId: string) => void;
   autoScroll: boolean;
   setAutoScroll: (val: boolean) => void;
-  handleClearLogs: (projectId: string, serviceId: string) => void;
 }
 
 export default function ProjectWorkspace({
   activeProj,
   statuses,
+  metrics,
   projectLogs,
   handleStopProject,
   handleStartProject,
@@ -35,7 +36,6 @@ export default function ProjectWorkspace({
   handleStartService,
   autoScroll,
   setAutoScroll,
-  handleClearLogs,
 }: ProjectWorkspaceProps) {
   const projectServices = activeProj.services || [];
   const anyRunning = projectServices.some(s => statuses[`${activeProj.id}_${s.id}`] === "Running");
@@ -162,6 +162,24 @@ export default function ProjectWorkspace({
                 </div>
               </div>
 
+              {/* Metrics display */}
+              {serviceStatus === "Running" && metrics && metrics[serviceKey] && (
+                <div className="flex items-center space-x-3 mr-4 text-[10px] text-zinc-500 font-mono flex-shrink-0">
+                  <div className="flex items-center space-x-1" title="CPU Usage">
+                    <span className="text-zinc-600">CPU:</span>
+                    <span className={metrics[serviceKey].cpu > 80 ? "text-amber-500 font-bold" : "text-zinc-300"}>
+                      {metrics[serviceKey].cpu}%
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1" title="Memory Usage">
+                    <span className="text-zinc-600">RAM:</span>
+                    <span className={metrics[serviceKey].memory > 1024 ? "text-amber-500 font-bold" : "text-zinc-300"}>
+                      {metrics[serviceKey].memory} MB
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Service action controls */}
               <div className="flex items-center space-x-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                 {serviceStatus === "Running" ? (
@@ -222,7 +240,6 @@ export default function ProjectWorkspace({
                 serviceName={s.name}
                 logs={logs}
                 status={status}
-                onClear={() => handleClearLogs(activeProj.id, s.id)}
               />
             );
           })}

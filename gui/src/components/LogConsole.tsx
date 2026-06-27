@@ -17,10 +17,13 @@ interface LogConsoleProps {
   serviceName: string;
   logs: string[];
   status: string;
-  onClear: () => void;
+  onClear?: () => void;
+  onKill?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export function LogConsole({ projectId, serviceId, serviceName, logs, status, onClear }: LogConsoleProps) {
+export function LogConsole({ projectId, serviceId, serviceName, logs, status, onClear, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
 
@@ -75,9 +78,12 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
   }, [projectId, serviceId]);
 
   return (
-    <div className="flex-1 min-w-[300px] min-h-[220px] max-h-[80vh] resize-y flex flex-col overflow-hidden border border-zinc-900 bg-zinc-955/45 rounded-xl shadow-md glass" style={{ height: '360px' }}>
+    <div className={`flex flex-col overflow-hidden border border-zinc-900 bg-zinc-955/45 rounded-xl shadow-md glass transition-all ${isCollapsed ? 'h-10 min-h-[40px]' : 'flex-1 min-w-[300px] min-h-[220px] max-h-[80vh] resize-y'} `} style={{ height: isCollapsed ? '40px' : '360px' }}>
       {/* Console Header */}
-      <div className="h-10 border-b border-zinc-900 px-4 flex items-center justify-between text-[11px] bg-zinc-950/80">
+      <div 
+        className="h-10 border-b border-zinc-900 px-4 flex items-center justify-between text-[11px] bg-zinc-950/80 cursor-pointer select-none"
+        onClick={() => onToggleCollapse && onToggleCollapse()}
+      >
         <div className="flex items-center space-x-2 text-zinc-400">
           <Terminal className="h-3.5 w-3.5 text-primary" />
           <span className="font-bold text-zinc-200">
@@ -96,19 +102,41 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
             {status}
           </Badge>
         </div>
-        <button
-          onClick={onClear}
-          className="text-zinc-555 hover:text-zinc-300 transition-colors text-[10px]"
-        >
-          Clear
-        </button>
-      </div>
+          <div className="flex items-center space-x-2">
+            {onToggleCollapse && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors text-[10px] mr-2"
+              >
+                {isCollapsed ? "Expand" : "Collapse"}
+              </button>
+            )}
+            {onKill && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onKill(); }}
+                className="text-destructive/80 hover:text-destructive transition-colors text-[10px] mr-2"
+              >
+                Kill Process
+              </button>
+            )}
+            {onClear && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onClear(); }}
+                className="text-zinc-555 hover:text-zinc-300 transition-colors text-[10px]"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
 
       {/* Console Output Logs */}
-      <div 
-        ref={containerRef}
-        className="flex-1 overflow-hidden p-2 pb-4 bg-black/45 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"
-      />
+      {!isCollapsed && (
+        <div 
+          ref={containerRef}
+          className="flex-1 overflow-hidden p-2 pb-4 bg-black/45 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"
+        />
+      )}
     </div>
   );
 }

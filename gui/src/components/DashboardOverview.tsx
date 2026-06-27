@@ -9,6 +9,7 @@ export interface DashboardOverviewProps {
   totalServicesCount: number;
   runningServicesCount: number;
   runningServices: { project: Project; service: Service }[];
+  metrics?: Record<string, {cpu: number, memory: number}>;
   handleNewClick: () => void;
   fetchProjects: () => void;
   fetchStatuses: () => void;
@@ -21,6 +22,7 @@ export default function DashboardOverview({
   totalServicesCount,
   runningServicesCount,
   runningServices,
+  metrics,
   handleNewClick,
   fetchProjects,
   fetchStatuses,
@@ -106,6 +108,16 @@ export default function DashboardOverview({
                     <Badge variant="outline" className="text-[9px] bg-zinc-900/60 border-zinc-800 text-zinc-450 uppercase select-none">
                       {service.language || "Python"}
                     </Badge>
+                    {metrics && metrics[`${project.id}_${service.id}`] && (
+                      <div className="flex items-center space-x-2 mr-2 ml-1 text-[10px] text-zinc-500 font-mono">
+                        <span className={metrics[`${project.id}_${service.id}`].cpu > 80 ? "text-amber-500 font-bold" : "text-zinc-400"}>
+                          {metrics[`${project.id}_${service.id}`].cpu}% CPU
+                        </span>
+                        <span className={metrics[`${project.id}_${service.id}`].memory > 1024 ? "text-amber-500 font-bold" : "text-zinc-400"}>
+                          {metrics[`${project.id}_${service.id}`].memory}MB
+                        </span>
+                      </div>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"

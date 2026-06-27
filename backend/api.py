@@ -121,6 +121,9 @@ class Api:
     def start_service(self, project_id, service_id):
         return self._process_manager.start_service(project_id, service_id)
 
+    def start_raw_terminal(self, terminal_id, cwd=None):
+        return self._process_manager.start_raw_terminal(terminal_id, cwd)
+
     def stop_service(self, project_id, service_id):
         return self._process_manager.stop_service(project_id, service_id)
 
@@ -148,6 +151,9 @@ class Api:
 
     def get_statuses(self):
         return self._process_manager.get_statuses()
+
+    def get_metrics(self):
+        return self._process_manager.get_metrics()
 
     def get_logs(self, project_id, service_id):
         return self._process_manager.get_logs(project_id, service_id)

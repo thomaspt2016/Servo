@@ -15,9 +15,72 @@ class ProcessManager:
         self.logs = {}
         self.window = None
         self.get_projects = get_projects_callback
+        
+        self.metrics = {}
+        self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
+        self._metrics_thread.start()
+
+    def _metrics_loop(self):
+        process_cache = {}
+        while True:
+            time.sleep(1.0)
+            with self.lock:
+                keys = list(self.processes.keys())
+            
+            new_metrics = {}
+            active_pids = set()
+            
+            for key in keys:
+                with self.lock:
+                    proc = self.processes.get(key)
+                
+                if not proc:
+                    continue
+                    
+                pid = proc.pid
+                try:
+                    if pid not in process_cache:
+                        process_cache[pid] = psutil.Process(pid)
+                    
+                    p = process_cache[pid]
+                    active_pids.add(pid)
+                    mem = p.memory_info().rss
+                    cpu = p.cpu_percent(interval=None)
+                    
+                    for child in p.children(recursive=True):
+                        c_pid = child.pid
+                        if c_pid not in process_cache:
+                            process_cache[c_pid] = child
+                        active_pids.add(c_pid)
+                        if child.name().lower() != 'conhost.exe':
+                            mem += process_cache[c_pid].memory_info().rss
+                            cpu += process_cache[c_pid].cpu_percent(interval=None)
+                    
+                    # psutil returns CPU per-core (e.g., 200% for 2 cores). Divide by logical cores to scale to 100%
+                    total_cores = psutil.cpu_count() or 1
+                    normalized_cpu = cpu / total_cores
+
+                    new_metrics[key] = {
+                        "cpu": round(normalized_cpu, 1),
+                        "memory": round(mem / (1024 * 1024), 1)
+                    }
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+                except Exception as e:
+                    pass
+            
+            # cleanup cache for dead pids
+            for p in list(process_cache.keys()):
+                if p not in active_pids:
+                    del process_cache[p]
+                    
+            with self.lock:
+                self.metrics = new_metrics
 
     def write_to_service(self, project_id, service_id, data):
         key = f"{project_id}_{service_id}"
+        if project_id == "terminal":
+            key = f"terminal_{service_id}"
         with self.lock:
             proc = self.processes.get(key)
             if hasattr(proc, 'write'):
@@ -298,8 +361,63 @@ class ProcessManager:
                 logger.error(f"Exception spawning service {key}: {e}", exc_info=True)
                 return False
 
+    def start_raw_terminal(self, terminal_id, cwd=None):
+        key = f"terminal_{terminal_id}"
+        with self.lock:
+            if key in self.processes:
+                return True
+            
+            logger.info(f"Attempting to launch raw terminal (Key: {key}). CWD: '{cwd}'")
+            try:
+                expanded_path = os.path.expanduser(cwd) if cwd else os.path.expanduser("~")
+                
+                if os.name == 'nt':
+                    try:
+                        import winpty
+                        pty = winpty.PTY(80, 24)
+                        pty.spawn('powershell.exe', cwd=expanded_path)
+                        
+                        self.processes[key] = pty
+                        self.logs[key] = [f"[SYSTEM] Embedded terminal started in winpty\r\n"]
+                        
+                        if self.window:
+                            try:
+                                self.window.evaluate_js(f"if (window.__terminals && window.__terminals['{key}']) window.__terminals['{key}'].reset();")
+                            except Exception:
+                                pass
+                        
+                        t_out = threading.Thread(target=self._read_stream_winpty, args=(key, pty), daemon=True)
+                        t_out.start()
+                    except ImportError:
+                        logger.warning("pywinpty not installed for raw terminal.")
+                        return False
+                else:
+                    # Basic fallback for Unix (not using pty for simplicity here, winpty handles windows)
+                    proc = subprocess.Popen(
+                        '/bin/bash',
+                        shell=True,
+                        cwd=expanded_path,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        stdin=subprocess.PIPE,
+                        bufsize=0
+                    )
+                    self.processes[key] = proc
+                    self.logs[key] = [f"[SYSTEM] Terminal started with PID {proc.pid}\r\n"]
+                    if hasattr(proc, 'stdout') and proc.stdout:
+                        t_out = threading.Thread(target=self._read_stream, args=(key, proc.stdout, "STDOUT"), daemon=True)
+                        t_out.start()
+                        
+                return True
+            except Exception as e:
+                self.logs[key] = [f"[SYSTEM] Failed to start terminal: {str(e)}"]
+                logger.error(f"Exception spawning terminal {key}: {e}", exc_info=True)
+                return False
+
     def stop_service(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
+        if project_id == "terminal":
+            key = f"terminal_{service_id}"
         with self.lock:
             proc = self.processes.get(key)
             if not proc:
@@ -385,17 +503,26 @@ class ProcessManager:
                         statuses[key] = "Idle"
             return statuses
 
+    def get_metrics(self):
+        with self.lock:
+            return self.metrics.copy()
+
     def get_logs(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
+        if project_id == "terminal":
+            key = f"terminal_{service_id}"
         with self.lock:
             return self.logs.get(key, [])
 
     def clear_logs(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
+        if project_id == "terminal":
+            key = f"terminal_{service_id}"
+            
         with self.lock:
             if key in self.logs:
                 self.logs[key] = ["[SYSTEM] Logs cleared."]
-            logger.info(f"Cleared virtual console logs buffer for service {key}")
+            logger.info(f"Cleared virtual console logs buffer for {key}")
             return True
 
     def cleanup_logs_for_project(self, project_id):

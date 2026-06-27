@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 
 import type { Project, Service, FormState } from "./types";
 import { PipView } from './components/PipView';
+import { LogConsole } from './components/LogConsole';
 
 const Sidebar = lazy(() => import('./components/Sidebar'));
 const DashboardOverview = lazy(() => import('./components/DashboardOverview'));
@@ -33,6 +34,7 @@ function App() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
+  const [metrics, setMetrics] = useState<Record<string, {cpu: number, memory: number}>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
@@ -44,6 +46,12 @@ function App() {
   // Terminal / Logs Panel State
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectLogs, setProjectLogs] = useState<Record<string, string[]>>({});
+  const [globalTerminalLogs, setGlobalTerminalLogs] = useState<Record<string, string[]>>({});
+  
+  const [terminals, setTerminals] = useState<{id: string, cwd?: string, isCollapsed?: boolean}[]>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [showTerminalPanel, setShowTerminalPanel] = useState(false);
+  
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
 
@@ -141,12 +149,16 @@ function App() {
 
     fetchProjects();
     fetchStatuses();
+    fetchMetrics();
     fetchInstalledLanguages();
     // Restore PiP feature state from previous session (window stays hidden until needed)
     if (pipEnabled) {
       getApi().open_pip().catch(() => {});
     }
-    const interval = setInterval(fetchStatuses, 1000);
+    const interval = setInterval(() => {
+      fetchStatuses();
+      fetchMetrics();
+    }, 1000);
     return () => clearInterval(interval);
   }, [isDesktop]);
 
@@ -185,6 +197,32 @@ function App() {
     return () => clearInterval(interval);
   }, [isDesktop, activeProjectId, projects]);
 
+  // Poll terminal logs
+  useEffect(() => {
+    if (!isDesktop || !showTerminalPanel || terminals.length === 0) return;
+    
+    const fetchTerminalLogs = async () => {
+      try {
+        const logsPromises = terminals.map(async (t) => {
+          const logs = await getApi().get_logs("terminal", t.id);
+          return { id: t.id, logs };
+        });
+        const results = await Promise.all(logsPromises);
+        const newLogs: Record<string, string[]> = {};
+        results.forEach(res => {
+          newLogs[res.id] = res.logs;
+        });
+        setGlobalTerminalLogs(newLogs);
+      } catch (err) {
+        console.error("Error reading terminal logs:", err);
+      }
+    };
+    
+    fetchTerminalLogs();
+    const interval = setInterval(fetchTerminalLogs, 1000);
+    return () => clearInterval(interval);
+  }, [isDesktop, showTerminalPanel, terminals]);
+
   const fetchProjects = async () => {
     setLoading(true);
     try {
@@ -206,6 +244,15 @@ function App() {
     }
   };
 
+  const fetchMetrics = async () => {
+    try {
+      const data = await getApi().get_metrics();
+      setMetrics(data);
+    } catch (err) {
+      console.error("Error fetching metrics:", err);
+    }
+  };
+
   // Service controls
   const handleStartService = async (projectId: string, serviceId: string) => {
     try {
@@ -217,6 +264,45 @@ function App() {
     } catch (err) {
       console.error("Failed to start service:", err);
     }
+  };
+
+
+
+  const handleNewTerminal = async () => {
+    let cwd: string | undefined = undefined;
+    if (activeProjectId) {
+      const proj = projects.find(p => p.id === activeProjectId);
+      if (proj && proj.services.length > 0) {
+        cwd = proj.services[0].path;
+      }
+    }
+    const newId = `term_${Date.now()}`;
+    setTerminals(prev => [...prev, { id: newId, cwd, isCollapsed: false }]);
+    setActiveTerminalId(newId);
+    setShowTerminalPanel(true);
+    
+    try {
+      await getApi().start_raw_terminal(newId, cwd);
+    } catch (err) {
+      console.error("Failed to start raw terminal:", err);
+    }
+  };
+
+  const handleCloseTerminal = async (termId: string) => {
+    try {
+      await getApi().stop_service("terminal", termId);
+    } catch (err) {}
+    
+    setTerminals(prev => {
+      const newTerms = prev.filter(t => t.id !== termId);
+      if (activeTerminalId === termId) {
+        setActiveTerminalId(newTerms.length > 0 ? newTerms[newTerms.length - 1].id : null);
+      }
+      if (newTerms.length === 0) {
+        setShowTerminalPanel(false);
+      }
+      return newTerms;
+    });
   };
 
   const handleStopService = async (projectId: string, serviceId: string) => {
@@ -466,15 +552,7 @@ function App() {
     setIsDialogOpen(true);
   };
 
-  // Clear project service logs
-  const handleClearLogs = async (projectId: string, serviceId: string) => {
-    try {
-      await getApi().clear_logs(projectId, serviceId);
-      setProjectLogs(prev => ({ ...prev, [serviceId]: ["[SYSTEM] Logs cleared."] }));
-    } catch (err) {
-      console.error("Failed to clear logs:", err);
-    }
-  };
+
 
   // Dialog Services list operations
   const handleAddServiceForm = () => {
@@ -827,6 +905,19 @@ function App() {
             )}
             <Button
               variant="outline"
+              size="sm"
+              onClick={handleNewTerminal}
+              className={`h-8 px-3 text-xs space-x-1.5 border transition-all ${
+                showTerminalPanel
+                  ? "text-primary border-primary/40 bg-primary/10 hover:bg-primary/20"
+                  : "text-zinc-500 border-zinc-800 hover:text-zinc-200 hover:bg-zinc-900"
+              }`}
+            >
+              <Terminal className="h-3.5 w-3.5" />
+              <span>{terminals.length > 0 ? `Terminal (${terminals.length})` : "Terminal"}</span>
+            </Button>
+            <Button
+              variant="outline"
               size="icon"
               onClick={handleTogglePip}
               title={pipEnabled ? "PiP enabled — shows when app is minimised" : "PiP disabled — click to enable"}
@@ -884,6 +975,7 @@ function App() {
                 <ProjectWorkspace
                   activeProj={activeProj}
                   statuses={statuses}
+                  metrics={metrics}
                   projectLogs={projectLogs}
                   handleStopProject={handleStopProject}
                   handleStartProject={handleStartProject}
@@ -894,7 +986,6 @@ function App() {
                   handleStartService={handleStartService}
                   autoScroll={autoScroll}
                   setAutoScroll={setAutoScroll}
-                  handleClearLogs={handleClearLogs}
                 />
               </Suspense>
             );
@@ -906,6 +997,7 @@ function App() {
               totalServicesCount={totalServicesCount}
               runningServicesCount={runningServicesCount}
               runningServices={runningServices}
+              metrics={metrics}
               handleNewClick={handleNewClick}
               fetchProjects={fetchProjects}
               fetchStatuses={fetchStatuses}
@@ -913,6 +1005,31 @@ function App() {
               handleStopService={handleStopService}
             />
           </Suspense>
+        )}
+
+        {/* Terminal Panel */}
+        {showTerminalPanel && terminals.length > 0 && (
+          <div className="h-auto max-h-[60vh] border-t border-zinc-900 bg-zinc-950 flex flex-col z-20 overflow-y-auto">
+            <div className="flex-1 flex flex-col p-4 gap-4">
+              <Suspense fallback={<div>Loading terminal...</div>}>
+                {terminals.map((t, index) => (
+                  <LogConsole
+                    key={t.id}
+                    projectId="terminal"
+                    serviceId={t.id}
+                    serviceName={`Terminal ${index + 1}`}
+                    logs={globalTerminalLogs[t.id] || []}
+                    status={statuses[`terminal_${t.id}`] || "Running"}
+                    isCollapsed={t.isCollapsed}
+                    onToggleCollapse={() => {
+                      setTerminals(prev => prev.map(term => term.id === t.id ? { ...term, isCollapsed: !term.isCollapsed } : term));
+                    }}
+                    onKill={() => handleCloseTerminal(t.id)}
+                  />
+                ))}
+              </Suspense>
+            </div>
+          </div>
         )}
       </main>
 
