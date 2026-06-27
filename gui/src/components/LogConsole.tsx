@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
-import { Terminal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Terminal, Search, ChevronUp, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 
 window.writeToTerminalUI = (key: string, data: string) => {
@@ -26,6 +27,8 @@ interface LogConsoleProps {
 export function LogConsole({ projectId, serviceId, serviceName, logs, status, onClear, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -41,6 +44,10 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
     
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
     
     term.open(containerRef.current);
     fitAddon.fit();
@@ -103,12 +110,41 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
           </Badge>
         </div>
           <div className="flex items-center space-x-2">
+            {!isCollapsed && (
+              <div 
+                className="flex items-center bg-black/40 border border-zinc-800 rounded px-1.5 h-6 mr-2 cursor-text transition-colors focus-within:border-primary/50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Search className="w-3 h-3 text-zinc-500 mr-1.5" />
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={e => {
+                     const val = e.target.value;
+                     setSearchQuery(val);
+                     if (val) {
+                       searchAddonRef.current?.findNext(val, { incremental: true });
+                     } else {
+                       searchAddonRef.current?.clearDecorations();
+                     }
+                  }}
+                  onKeyDown={e => {
+                     if (e.key === 'Enter') {
+                        if (e.shiftKey) searchAddonRef.current?.findPrevious(searchQuery);
+                        else searchAddonRef.current?.findNext(searchQuery);
+                     }
+                  }}
+                  placeholder="Search logs (Enter/Shift+Enter)..." 
+                  className="bg-transparent text-[10px] text-zinc-200 focus:outline-none w-40 placeholder:text-zinc-600" 
+                />
+              </div>
+            )}
             {onToggleCollapse && (
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors text-[10px] mr-2"
+                className="text-zinc-500 hover:text-zinc-300 transition-colors text-[10px] mr-2 flex items-center"
               >
-                {isCollapsed ? "Expand" : "Collapse"}
+                {isCollapsed ? <><ChevronDown className="w-3.5 h-3.5 mr-0.5" /> Expand</> : <><ChevronUp className="w-3.5 h-3.5 mr-0.5" /> Collapse</>}
               </button>
             )}
             {onKill && (
