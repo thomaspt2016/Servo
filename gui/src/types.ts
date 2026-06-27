@@ -17,6 +17,26 @@ export interface Project {
   services: Service[];
 }
 
+export interface FormService {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  command: string;
+  venv_path: string;
+  use_venv: boolean;
+  language?: string;
+  mode?: "file" | "npm" | "custom";
+}
+
+export interface FormState {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  services: FormService[];
+}
+
 declare global {
   interface Window {
     pywebview?: {
