@@ -16,6 +16,7 @@ export interface ProjectWorkspaceProps {
   handleDuplicateClick: (project: Project, e: React.MouseEvent) => void;
   handleEditClick: (project: Project, e: React.MouseEvent) => void;
   handleDeleteClick: (id: string, e: React.MouseEvent) => void;
+  handleDeleteServiceClick: (projectId: string, serviceId: string, e: React.MouseEvent) => void;
   handleStopService: (projectId: string, serviceId: string) => void;
   handleStartService: (projectId: string, serviceId: string) => void;
   autoScroll: boolean;
@@ -32,6 +33,7 @@ export default function ProjectWorkspace({
   handleDuplicateClick,
   handleEditClick,
   handleDeleteClick,
+  handleDeleteServiceClick,
   handleStopService,
   handleStartService,
   autoScroll,
@@ -196,13 +198,35 @@ export default function ProjectWorkspace({
                   <Button
                     variant="default"
                     size="icon"
-                    onClick={() => handleStartService(activeProj.id, service.id)}
+                    onClick={(e) => { e.stopPropagation(); handleStartService(activeProj.id, service.id); }}
                     className="h-7 w-7 bg-emerald-600 hover:bg-emerald-555 text-zinc-100"
                     title="Start Service"
                   >
                     <Play className="h-3 w-3 fill-zinc-150" />
                   </Button>
                 )}
+                
+                <div className="w-px h-4 bg-zinc-850 mx-1"></div>
+                
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleEditClick(activeProj, e)}
+                  className="h-7 w-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                  title="Edit Service"
+                >
+                  <Edit2 className="h-3 w-3" />
+                </Button>
+                
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleDeleteServiceClick(activeProj.id, service.id, e)}
+                  className="h-7 w-7 text-zinc-500 hover:text-destructive hover:bg-destructive/10"
+                  title="Delete Service"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
               </div>
             </div>
           );

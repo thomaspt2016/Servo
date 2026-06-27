@@ -9,16 +9,52 @@ import psutil
 from backend.logger import logger
 
 class ProcessManager:
-    def __init__(self, get_projects_callback):
+    def __init__(self, get_projects_callback, api=None):
         self.lock = threading.Lock()
         self.processes = {}
         self.logs = {}
+        self.intentionally_stopped = set()
+        self.last_statuses = {}
         self.window = None
         self.get_projects = get_projects_callback
+        self.api = api
         
         self.metrics = {}
         self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
         self._metrics_thread.start()
+
+    def _trigger_crash_notification(self, key):
+        logger.info(f"Triggering crash notification for key: {key}")
+        if key in self.intentionally_stopped:
+            logger.info(f"Skipping notification for {key} because it was intentionally stopped.")
+            return
+            
+        proj_name = "Embedded Terminal"
+        serv_name = key
+        
+        if not key.startswith("terminal_"):
+            parts = key.split('_', 1)
+            if len(parts) == 2:
+                p_id, s_id = parts
+                projects = self.get_projects()
+                proj = next((p for p in projects if p.get('id') == p_id), None)
+                if proj:
+                    proj_name = proj.get('name', 'Unknown Project')
+                    serv = next((s for s in proj.get('services', []) if s.get('id') == s_id), None)
+                    if serv:
+                        serv_name = serv.get('name', 'Unknown Service')
+                else:
+                    proj_name = "Servo Dashboard"
+                    serv_name = "Unknown Service"
+                    
+        try:
+            if self.api and hasattr(self.api, 'show_toast_window'):
+                logger.info(f"Calling show_toast_window for {proj_name} / {serv_name}")
+                self.api.show_toast_window(f"⚠️ Servo: {proj_name}", f"Service '{serv_name}' stopped running.")
+            else:
+                logger.warning("self.api is not set or lacks show_toast_window!")
+        except Exception as e:
+            logger.error(f"Failed to send custom toast notification: {e}")
 
     def _metrics_loop(self):
         process_cache = {}
@@ -76,6 +112,16 @@ class ProcessManager:
                     
             with self.lock:
                 self.metrics = new_metrics
+
+            # Track status changes for interactive terminal crash notifications
+            current_statuses = self.get_statuses()
+            for k, status in current_statuses.items():
+                if k in self.last_statuses:
+                    if self.last_statuses[k] != status:
+                        logger.info(f"Service '{k}' status changed from '{self.last_statuses[k]}' to '{status}'")
+                    if self.last_statuses[k] == 'Running' and status in ('Idle', 'Error'):
+                        self._trigger_crash_notification(k)
+                self.last_statuses[k] = status
 
     def write_to_service(self, project_id, service_id, data):
         key = f"{project_id}_{service_id}"
@@ -157,6 +203,9 @@ class ProcessManager:
                     del self.processes[key]
                     if key in self.logs:
                         self.logs[key].append("[SYSTEM] Console session closed.")
+                
+                if key in self.intentionally_stopped:
+                    self.intentionally_stopped.discard(key)
 
     def _read_stream(self, key, stream, stream_name):
         try:
@@ -191,6 +240,9 @@ class ProcessManager:
                         del self.processes[key]
                         if key in self.logs:
                             self.logs[key].append("[SYSTEM] Process stream closed.")
+                
+                if key in self.intentionally_stopped:
+                    self.intentionally_stopped.discard(key)
 
     def start_service(self, project_id, service_id):
         key = f"{project_id}_{service_id}"
@@ -341,6 +393,8 @@ class ProcessManager:
                     )
                 
                     self.processes[key] = proc
+                    if key in self.intentionally_stopped:
+                        self.intentionally_stopped.discard(key)
                     self.logs[key] = [f"[SYSTEM] Service started in embedded console with PID {proc.pid}\r\n"]
                     logger.info(f"Service '{name}' successfully started. Process PID: {proc.pid}")
                     
@@ -428,12 +482,14 @@ class ProcessManager:
             try:
                 # If the process is an interactive PTY, send Ctrl+C instead of killing the shell
                 if hasattr(proc, 'write'):
+                    self.intentionally_stopped.add(key)
                     proc.write('\x03')
                     if key in self.logs:
                         self.logs[key].append("[SYSTEM] Sent Ctrl+C to terminal. Terminal remains interactive.\r\n")
                     logger.info(f"Sent Ctrl+C to interactive terminal for service key: {key}")
                     return True
 
+                self.intentionally_stopped.add(key)
                 if os.name == 'nt':
                     # Windows: Forcefully terminate process tree
                     subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True, capture_output=True)

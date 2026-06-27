@@ -19,7 +19,7 @@ class Api:
         self._pip_window = None
         self._pip_paused = False
         
-        self._process_manager = ProcessManager(self._load_from_json)
+        self._process_manager = ProcessManager(self._load_from_json, self)
         logger.info("Initialized Python IPC Api handler.")
         
     @property
@@ -362,6 +362,18 @@ class Api:
 
             pip_w = 280
             pip_h = 48
+            
+            init_x = None
+            init_y = None
+            try:
+                import screeninfo
+                monitors = screeninfo.get_monitors()
+                if monitors:
+                    m = next((m for m in monitors if m.is_primary), monitors[0])
+                    init_x = int(m.x + m.width - pip_w - 20)
+                    init_y = int(m.y + m.height - pip_h - 60)
+            except Exception as se:
+                logger.error(f"screeninfo error before pip creation: {se}")
 
             pip_win = webview.create_window(
                 'Servo PiP',
@@ -369,6 +381,8 @@ class Api:
                 js_api=self,
                 width=pip_w,
                 height=pip_h,
+                x=init_x,
+                y=init_y,
                 min_size=(100, 30),
                 frameless=True,
                 on_top=True,
@@ -390,20 +404,6 @@ class Api:
                     time.sleep(0.6)  # Wait for window handle to be ready
                     try:
                         # Position in bottom-right corner
-                        class RECT(ctypes.Structure):
-                            _fields_ = [('left', ctypes.c_long), ('top', ctypes.c_long),
-                                        ('right', ctypes.c_long), ('bottom', ctypes.c_long)]
-                        work = RECT()
-                        ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work), 0)
-                        hwnd = pip_win.native.Handle.ToInt32()
-                        x = work.right - pip_w - 20
-                        y = work.bottom - pip_h - 20
-                        HWND_TOPMOST = -1
-                        SWP_NOACTIVATE = 0x0010
-                        SWP_NOSIZE = 0x0001
-                        ctypes.windll.user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE)
-                        logger.info(f"PiP window positioned at ({x},{y})")
-
                         # Hide immediately if main window is currently in focus
                         main_hwnd = self._window.native.Handle.ToInt32()
                         fg = ctypes.windll.user32.GetForegroundWindow()
@@ -435,6 +435,25 @@ class Api:
                 self._pip_window = None
             return True
         return False
+
+    def show_toast_window(self, title, message):
+        """Spawns a highly reliable native Windows notification."""
+        try:
+            logger.info(f"Triggering native Windows notification: '{title}'")
+            
+            def _send_toast():
+                try:
+                    from win11toast import toast
+                    toast(title, message, app_id="Servo Dashboard")
+                    logger.info("Native toast sent successfully.")
+                except Exception as e:
+                    logger.error(f"win11toast failed: {e}")
+
+            import threading
+            threading.Thread(target=_send_toast, daemon=True).start()
+            
+        except Exception as e:
+            logger.error(f"Failed to initiate native toast: {e}", exc_info=True)
 
     def _pip_focus_monitor(self):
         """Background thread: show PiP when main loses focus/minimizes, hide when main is active."""

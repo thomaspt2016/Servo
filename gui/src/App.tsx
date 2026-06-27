@@ -3,7 +3,8 @@ import {
   Layers,
   Terminal,
   RefreshCw,
-  PictureInPicture2
+  PictureInPicture2,
+  AlertTriangle
 } from "lucide-react";
 
 // Import custom UI components
@@ -24,13 +25,41 @@ const getApi = () => {
 };
 
 // Computed once at module load — never changes during the lifetime of this window
-// Uses hash (#pip) because query params (?mode=pip) don't work on file:// URLs
+// Uses hash (#pip, #toast) because query params (?mode=pip) don't work on file:// URLs
 const IS_PIP_MODE = window.location.hash === "#pip";
+const IS_TOAST_MODE = window.location.hash.startsWith("#toast");
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 function App() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
+
+  if (IS_TOAST_MODE) {
+    let title = "Servo Alert";
+    let message = "Service crashed.";
+    try {
+      const qs = window.location.hash.split('?')[1];
+      if (qs) {
+        const params = new URLSearchParams(qs);
+        title = params.get('title') || title;
+        message = params.get('message') || message;
+      }
+    } catch(e) {}
+
+    return (
+      <div className="w-full h-full h-screen w-screen overflow-hidden bg-transparent p-2">
+        <div className="w-full h-full bg-zinc-950/95 backdrop-blur-md border border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.25)] rounded-xl flex items-center p-4">
+           <div className="bg-red-500/20 p-2.5 rounded-full mr-4 flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-red-500" />
+           </div>
+           <div className="flex flex-col overflow-hidden justify-center space-y-1">
+               <h3 className="text-zinc-100 font-bold text-sm truncate">{title}</h3>
+               <p className="text-zinc-400 text-xs truncate leading-snug">{message}</p>
+           </div>
+        </div>
+      </div>
+    );
+  }
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
@@ -313,6 +342,23 @@ function App() {
       }
     } catch (err) {
       console.error("Failed to stop service:", err);
+    }
+  };
+
+  const handleDeleteServiceClick = async (projectId: string, serviceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this service?")) return;
+    try {
+      const proj = projects.find(p => p.id === projectId);
+      if (!proj) return;
+      
+      const updatedProj = { ...proj, services: proj.services.filter(s => s.id !== serviceId) };
+      const success = await getApi().save_project(updatedProj);
+      if (success) {
+        fetchProjects();
+      }
+    } catch (err) {
+      console.error("Failed to delete service:", err);
     }
   };
 
@@ -982,6 +1028,7 @@ function App() {
                   handleDuplicateClick={handleDuplicateClick}
                   handleEditClick={handleEditClick}
                   handleDeleteClick={handleDeleteClick}
+                  handleDeleteServiceClick={handleDeleteServiceClick}
                   handleStopService={handleStopService}
                   handleStartService={handleStartService}
                   autoScroll={autoScroll}
