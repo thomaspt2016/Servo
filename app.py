@@ -3,8 +3,8 @@ import sys
 import threading
 import webview
 
-from logger import logger
-from api import Api, DEBUG
+from backend.logger import logger
+from backend.api import Api, DEBUG
 
 if __name__ == '__main__':
     logger.info("=========================================")

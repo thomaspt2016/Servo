@@ -4,8 +4,8 @@ import threading
 import subprocess
 import webview
 
-from logger import logger
-from process_manager import ProcessManager
+from backend.logger import logger
+from backend.process_manager import ProcessManager
 
 # We duplicate DEBUG here so it can be set. If needed, you can import it or set it in app.py
 DEBUG = False
@@ -13,7 +13,7 @@ DEBUG = False
 class Api:
     def __init__(self):
         self.storage_lock = threading.Lock()
-        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.storage_path = os.path.join(self.base_dir, 'storage.json')
         self.__window = None
         self._pip_window = None

@@ -6,7 +6,7 @@ import time
 import json
 import psutil
 
-from logger import logger
+from backend.logger import logger
 
 class ProcessManager:
     def __init__(self, get_projects_callback):
