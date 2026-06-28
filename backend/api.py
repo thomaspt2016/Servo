@@ -80,6 +80,23 @@ class Api:
     def write_to_service(self, project_id, service_id, data):
         return self._process_manager.write_to_service(project_id, service_id, data)
 
+    def resize_terminal(self, project_id, service_id, cols, rows):
+        return self._process_manager.resize_terminal(project_id, service_id, cols, rows)
+
+    def check_docker_status(self):
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["docker", "info"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                timeout=3
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
     def load_projects(self):
         return self._load_from_json()
 
@@ -139,6 +156,9 @@ class Api:
     def stop_service(self, project_id, service_id):
         return self._process_manager.stop_service(project_id, service_id)
 
+    def warmup_service_terminal(self, project_id, service_id):
+        return self._process_manager.warmup_service_terminal(project_id, service_id)
+
     def start_project(self, project_id):
         logger.info(f"Request to start all services for project ID: {project_id}")
         projects = self._load_from_json()
@@ -163,6 +183,44 @@ class Api:
 
     def get_statuses(self):
         return self._process_manager.get_statuses()
+
+    def get_docker_containers(self):
+        with self._process_manager.lock:
+            return self._process_manager.docker_containers.copy()
+
+    def stop_docker_container(self, container_name):
+        try:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            container.stop()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to stop docker container {container_name}: {e}")
+            return False
+
+    def start_docker_container(self, container_name):
+        try:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            container.start()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start docker container {container_name}: {e}")
+            return False
+
+    def get_docker_container_logs(self, container_name):
+        try:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(container_name)
+            # Get last 1000 lines
+            logs = container.logs(tail=1000).decode('utf-8')
+            return logs
+        except Exception as e:
+            logger.error(f"Failed to get docker container logs {container_name}: {e}")
+            return str(e)
 
     def get_dependency_statuses(self):
         return self._process_manager.get_dependency_statuses()
@@ -252,6 +310,20 @@ class Api:
         # Rules for language-agnostic detection
         rules = [
             {
+                "language": "Docker Compose",
+                "indicators": ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"],
+                "command": "docker compose up",
+                "use_venv": False,
+                "venv_folders": []
+            },
+            {
+                "language": "Docker",
+                "indicators": ["Dockerfile"],
+                "command": "docker build -t auto-img . && docker run auto-img",
+                "use_venv": False,
+                "venv_folders": []
+            },
+            {
                 "language": "Node.js",
                 "indicators": ["package.json"],
                 "command": "npm run dev",
@@ -303,13 +375,20 @@ class Api:
             
             # Check rules
             for rule in rules:
-                if any(ind in files for ind in rule["indicators"]):
+                matched_ind = next((ind for ind in rule["indicators"] if ind in files), None)
+                if matched_ind:
                     # Found a match
+                    command = rule["command"]
+                    if rule["language"] == "Docker":
+                        command = f"docker build -t auto-img -f {matched_ind} . && docker run auto-img"
+                    elif rule["language"] == "Docker Compose":
+                        command = f"docker compose -f {matched_ind} up"
+
                     service = {
                         "id": f"srv-auto-{int(time.time()*1000)}-{len(discovered_services)}",
                         "name": f"{rule['language']} Service ({os.path.basename(root) or 'Root'})",
                         "path": root.replace('\\', '/'),
-                        "command": rule["command"],
+                        "command": command,
                         "use_venv": rule["use_venv"],
                         "language": rule["language"],
                         "venv_path": ""
@@ -347,6 +426,10 @@ class Api:
         
         # Python is always installed since we are running a python app
         installed.append("Python")
+            
+        if shutil.which("docker"):
+            installed.append("Docker")
+            installed.append("Docker Compose")
             
         if shutil.which("node") or shutil.which("npm"):
             installed.append("Node.js")

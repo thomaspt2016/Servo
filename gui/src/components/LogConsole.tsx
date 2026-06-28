@@ -16,14 +16,13 @@ interface LogConsoleProps {
   projectId: string;
   serviceId: string;
   serviceName: string;
-  logs: string[];
   status: string;
   onKill?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
-export function LogConsole({ projectId, serviceId, serviceName, logs, status, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
+export function LogConsole({ projectId, serviceId, serviceName, status, onKill, isCollapsed = false, onToggleCollapse }: LogConsoleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
@@ -37,8 +36,7 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
       fontFamily: 'monospace',
       fontSize: 12,
       cursorBlink: true,
-      scrollback: 5000,
-      convertEol: true, 
+      scrollback: 5000
     });
     
     const fitAddon = new FitAddon();
@@ -64,13 +62,36 @@ export function LogConsole({ projectId, serviceId, serviceName, logs, status, on
     if (!window.__terminals) window.__terminals = {};
     window.__terminals[key] = term;
 
-    if (logs && logs.length > 0) {
-      term.write(logs.join(''));
+    // Fetch historical logs synchronously to prevent race conditions
+    if (window.pywebview?.api?.get_logs) {
+      window.pywebview.api.get_logs(projectId, serviceId).then((historyLogs: string[]) => {
+        const attachOnData = () => {
+          term.onData(data => {
+            if (window.pywebview?.api?.write_to_service) {
+              window.pywebview.api.write_to_service(projectId, serviceId, data);
+            }
+          });
+        };
+
+        if (historyLogs && historyLogs.length > 0) {
+          // Write history, then attach onData when done so terminal DA requests in history aren't echoed back to the shell
+          term.write(historyLogs.join(''), attachOnData);
+        } else {
+          attachOnData();
+        }
+      }).catch(console.error);
+    } else {
+      // Fallback if API missing
+      term.onData(data => {
+        if (window.pywebview?.api?.write_to_service) {
+          window.pywebview.api.write_to_service(projectId, serviceId, data);
+        }
+      });
     }
 
-    term.onData(data => {
-      if (window.pywebview?.api?.write_to_service) {
-        window.pywebview.api.write_to_service(projectId, serviceId, data);
+    term.onResize(({ cols, rows }) => {
+      if (window.pywebview?.api?.resize_terminal) {
+        window.pywebview.api.resize_terminal(projectId, serviceId, cols, rows);
       }
     });
 

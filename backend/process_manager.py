@@ -20,6 +20,8 @@ class ProcessManager:
         self.window = None
         self.get_projects = get_projects_callback
         self.api = api
+        self.docker_services_running = set()
+        self.docker_containers = {}
         
         self.metrics = {}
         self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
@@ -50,6 +52,12 @@ class ProcessManager:
                     serv = next((s for s in proj.get('services', []) if s.get('id') == s_id), None)
                     if serv:
                         serv_name = serv.get('name', 'Unknown Service')
+                        cmd_lower = serv.get('command', '').lower()
+                        # If the command contains detached flags, do not show a crash notification
+                        # because the terminal process is expected to exit immediately.
+                        if ('-d ' in cmd_lower or ' -d' in cmd_lower or '--detach' in cmd_lower or '-s ' in cmd_lower or ' -s' in cmd_lower):
+                            logger.info(f"Skipping notification for {key} because it uses a background/detached flag.")
+                            return
                 else:
                     proj_name = "Servo Dashboard"
                     serv_name = "Unknown Service"
@@ -139,6 +147,62 @@ class ProcessManager:
                     
             with self.lock:
                 self.metrics = new_metrics
+
+            # Background check for Docker containers
+            new_docker_running = set()
+            new_docker_containers = {}
+            try:
+                import docker
+                client = docker.from_env()
+                containers = client.containers.list(all=True)
+                
+                projects = self.get_projects()
+                for p in projects:
+                    p_id = p.get('id')
+                    for s in p.get('services', []):
+                        s_id = s.get('id')
+                        key = f"{p_id}_{s_id}"
+                        
+                        language = s.get('language', '')
+                        if language in ("Docker", "Docker Compose") or "docker" in s.get('command', '').lower():
+                            if language == "Docker Compose":
+                                expanded_path = os.path.expandvars(s.get('path', p.get('path', '')))
+                                expanded_path = os.path.normcase(os.path.abspath(expanded_path))
+                                for c in containers:
+                                    working_dir = c.labels.get('com.docker.compose.project.working_dir')
+                                    if working_dir and os.path.normcase(os.path.abspath(working_dir)) == expanded_path:
+                                        if c.status == 'running':
+                                            new_docker_running.add(key)
+                                        if key not in new_docker_containers:
+                                            new_docker_containers[key] = []
+                                        new_docker_containers[key].append({"name": c.name, "state": c.status})
+                                
+                                # Debug log for empty cases
+                                if key not in new_docker_containers:
+                                    logger.info(f"Docker Compose path '{expanded_path}' didn't match any containers.")
+                                else:
+                                    logger.info(f"Docker Compose path '{expanded_path}' MATCHED {len(new_docker_containers[key])} containers.")
+                            else:
+                                target_port = s.get('target_port')
+                                if target_port:
+                                    try:
+                                        tp = str(target_port)
+                                        for c in containers:
+                                            ports = c.attrs.get('NetworkSettings', {}).get('Ports', {})
+                                            if any(port_key.startswith(tp + '/') or any(mapping and mapping.get('HostPort') == tp for mapping in mappings or []) for port_key, mappings in ports.items()):
+                                                if c.status == 'running':
+                                                    new_docker_running.add(key)
+                                                if key not in new_docker_containers:
+                                                    new_docker_containers[key] = []
+                                                new_docker_containers[key].append({"name": c.name, "state": c.status})
+                                    except Exception as e:
+                                        logger.error(f"Error in Docker port logic: {e}")
+            except Exception as e:
+                logger.error(f"Error in Docker metrics loop: {e}", exc_info=True)
+
+            with self.lock:
+                self.docker_services_running = new_docker_running
+                self.docker_containers = new_docker_containers
 
             # Track status changes for interactive terminal crash notifications
             current_statuses = self.get_statuses()
@@ -230,6 +294,20 @@ class ProcessManager:
                     logger.error(f"Failed to write to {key} stdin: {e}")
         return False
 
+    def resize_terminal(self, project_id, service_id, cols, rows):
+        key = f"{project_id}_{service_id}"
+        if project_id == "terminal":
+            key = f"terminal_{service_id}"
+        with self.lock:
+            proc = self.processes.get(key)
+            if hasattr(proc, 'set_size'):
+                try:
+                    proc.set_size(cols, rows)
+                    return True
+                except Exception as e:
+                    logger.error(f"Failed to resize terminal {key}: {e}")
+        return False
+
     def _read_stream_winpty(self, key, pty):
         try:
             shell_pid = pty.pid
@@ -291,6 +369,7 @@ class ProcessManager:
                 if not chunk:
                     break
                 text = chunk.decode('utf-8', errors='replace')
+                text = text.replace('\r\n', '\n').replace('\n', '\r\n')
                 
                 with self.lock:
                     if key not in self.logs:
@@ -321,6 +400,52 @@ class ProcessManager:
                 
                 if key in self.intentionally_stopped:
                     self.intentionally_stopped.discard(key)
+
+    def warmup_service_terminal(self, project_id, service_id):
+        key = f"{project_id}_{service_id}"
+        with self.lock:
+            if key in self.processes:
+                return True
+                
+            projects = self.get_projects()
+            project = next((p for p in projects if p.get('id') == project_id), None)
+            if not project:
+                return False
+                
+            service = next((s for s in project.get('services', []) if s.get('id') == service_id), None)
+            if not service:
+                return False
+                
+            path = service.get('path')
+            if not path:
+                return False
+                
+            expanded_path = os.path.expanduser(path)
+            process_env = os.environ.copy()
+            
+            venv_path = service.get('venv_path')
+            use_venv = service.get('use_venv', True)
+            if venv_path and use_venv:
+                expanded_venv = os.path.expanduser(venv_path)
+                venv_bin = os.path.join(expanded_venv, 'Scripts') if os.name == 'nt' else os.path.join(expanded_venv, 'bin')
+                process_env['PATH'] = venv_bin + os.pathsep + process_env.get('PATH', '')
+                process_env['VIRTUAL_ENV'] = expanded_venv
+                
+            if os.name == 'nt':
+                try:
+                    import winpty
+                    pty = winpty.PTY(80, 24)
+                    pty_env = '\0'.join([f"{k}={v}" for k, v in process_env.items()]) + '\0'
+                    pty.spawn('powershell.exe', cwd=expanded_path, env=pty_env)
+                    self.processes[key] = pty
+                    self.logs[key] = [f"[SYSTEM] PowerShell terminal ready in {expanded_path}\r\n"]
+                    t_out = threading.Thread(target=self._read_stream_winpty, args=(key, pty), daemon=True)
+                    t_out.start()
+                    return True
+                except ImportError:
+                    pass
+                    
+            return False
 
     def start_service(self, project_id, service_id, override_command=None):
         key = f"{project_id}_{service_id}"
@@ -651,7 +776,7 @@ class ProcessManager:
                             else:
                                 poll = proc.poll()
                                 
-                        if poll is None:
+                        if poll is None or key in self.docker_services_running:
                             statuses[key] = "Running"
                         else:
                             statuses[key] = "Error" if poll != 0 else "Idle"
@@ -660,8 +785,10 @@ class ProcessManager:
                                 del self.active_ports[key]
                     else:
                         # Process hasn't been started in this session
-                        # But wait, is there a target_port in config?
-                        statuses[key] = "Idle"
+                        if key in self.docker_services_running:
+                            statuses[key] = "Running"
+                        else:
+                            statuses[key] = "Idle"
                         
             return statuses
 

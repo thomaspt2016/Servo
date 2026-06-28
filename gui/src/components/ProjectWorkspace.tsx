@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle } from "lucide-react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,13 +8,18 @@ import { GitPanel } from "./GitPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { Project, GitInfo } from "../types";
 
+const getApi = () => {
+  return (window as any).pywebview.api;
+};
+
 export interface ProjectWorkspaceProps {
   activeProj: Project;
   statuses: Record<string, string>;
   dependencyStatuses: Record<string, string | null>;
   activePorts: Record<string, number>;
+  isDockerRunning?: boolean;
+  dockerContainers?: Record<string, {name: string, state: string}[]>;
   metrics?: Record<string, {cpu: number, memory: number}>;
-  projectLogs: Record<string, string[]>;
   handleStopProject: (projectId: string, e?: React.MouseEvent) => void;
   handleStartProject: (projectId: string, e?: React.MouseEvent) => void;
   handleDuplicateClick: (project: Project, e: React.MouseEvent) => void;
@@ -35,8 +40,9 @@ export default function ProjectWorkspace({
   statuses,
   dependencyStatuses,
   activePorts,
+  isDockerRunning,
+  dockerContainers,
   metrics,
-  projectLogs,
   handleStopProject,
   handleStartProject,
   handleDuplicateClick,
@@ -54,8 +60,75 @@ export default function ProjectWorkspace({
   const projectServices = activeProj.services || [];
   const anyRunning = projectServices.some(s => statuses[`${activeProj.id}_${s.id}`] === "Running");
 
+  React.useEffect(() => {
+    projectServices.forEach(s => {
+      if (getApi().warmup_service_terminal) {
+        getApi().warmup_service_terminal(activeProj.id, s.id).catch(() => {});
+      }
+    });
+  }, [activeProj.id]);
+
   const [showGitPanel, setShowGitPanel] = useState(false);
   const [gitSummary, setGitSummary] = useState<GitInfo | null>(null);
+
+  const [openLogContainers, setOpenLogContainers] = useState<Record<string, boolean>>({});
+  const [containerLogs, setContainerLogs] = useState<Record<string, string>>({});
+
+  const toggleContainerLogs = (containerName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenLogContainers(prev => ({
+      ...prev,
+      [containerName]: !prev[containerName]
+    }));
+  };
+
+  React.useEffect(() => {
+    const activeContainers = Object.keys(openLogContainers).filter(k => openLogContainers[k]);
+    if (activeContainers.length === 0) return;
+
+    const fetchLogs = async () => {
+      for (const cName of activeContainers) {
+        try {
+          const logs = await getApi().get_docker_container_logs(cName);
+          setContainerLogs(prev => ({ ...prev, [cName]: logs }));
+        } catch (err) {
+          console.error(`Failed to fetch logs for ${cName}`, err);
+        }
+      }
+    };
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 1500);
+    return () => clearInterval(interval);
+  }, [openLogContainers]);
+
+  const handleStopContainer = async (containerName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await getApi().stop_docker_container(containerName);
+    } catch (err) {
+      console.error("Failed to stop container", err);
+    }
+  };
+
+  const handleStartContainer = async (containerName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await getApi().start_docker_container(containerName);
+    } catch (err) {
+      console.error("Failed to start container", err);
+    }
+  };
+  
+  const handleStopAllContainers = async (serviceKey: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!dockerContainers || !dockerContainers[serviceKey]) return;
+    for (const c of dockerContainers[serviceKey]) {
+      if (c.state === 'running') {
+        getApi().stop_docker_container(c.name).catch(() => {});
+      }
+    }
+  };
   const [alertConfig, setAlertConfig] = useState<{ open: boolean, title: string, message: React.ReactNode }>({ open: false, title: "", message: "" });
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean, title: string, message: React.ReactNode, onConfirm: () => void }>({ open: false, title: "", message: "", onConfirm: () => {} });
 
@@ -65,8 +138,8 @@ export default function ProjectWorkspace({
       {/* Project Header Card */}
       <Card className="border-zinc-900 bg-zinc-950/40 relative shadow-sm">
         <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1 pr-4 truncate flex-1">
-            <div className="flex items-center space-x-3">
+          <div className="flex-1 min-w-0 pr-4">
+            <div className="flex items-center space-x-3 mb-1">
               {onBack && (
                 <Button variant="ghost" size="icon" onClick={onBack} className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 -ml-1">
                   <ArrowLeft className="h-4 w-4" />
@@ -106,10 +179,12 @@ export default function ProjectWorkspace({
               <Button
                 variant="default"
                 size="sm"
+                disabled={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false}
                 onClick={(e) => handleStartProject(activeProj.id, e)}
-                className="h-8 px-4 text-xs space-x-1.5 bg-emerald-650 hover:bg-emerald-650 text-zinc-100 font-medium shadow-md shadow-emerald-500/10"
+                className={`h-8 px-4 text-xs space-x-1.5 font-medium shadow-md ${projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50' : 'bg-emerald-650 hover:bg-emerald-650 text-zinc-100 shadow-emerald-500/10'}`}
+                title={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? "Docker is not running" : "Run Project"}
               >
-                <Play className="h-3 w-3 fill-zinc-100" />
+                <Play className="h-3 w-3 fill-current" />
                 <span>Run Project</span>
               </Button>
             )}
@@ -155,11 +230,14 @@ export default function ProjectWorkspace({
         {projectServices.map((service) => {
           const serviceKey = `${activeProj.id}_${service.id}`;
           const serviceStatus = statuses[serviceKey] || "Idle";
+          const isDockerService = service.language === "Docker Compose" || service.language === "Docker" || service.command.toLowerCase().includes("docker");
+          const startDisabled = isDockerService && isDockerRunning === false;
+          const hasOpenLogs = dockerContainers && dockerContainers[serviceKey] && dockerContainers[serviceKey].some(c => openLogContainers[c.name]);
 
           return (
             <div
               key={service.id}
-              className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 bg-zinc-950/40 border-zinc-900/80 hover:border-zinc-805 hover:bg-zinc-900/10"
+              className={`flex justify-between p-4 rounded-xl border transition-all duration-200 bg-zinc-950/40 border-zinc-900/80 hover:border-zinc-805 hover:bg-zinc-900/10 ${hasOpenLogs ? 'lg:col-span-2 items-start' : 'items-center'}`}
             >
               <div className="flex items-start space-x-3.5 truncate flex-1 mr-3">
                 <span className={`h-2.5 w-2.5 rounded-full flex-shrink-0 mt-1.5 ${
@@ -180,6 +258,11 @@ export default function ProjectWorkspace({
                         📍 :{activePorts[serviceKey]}
                       </span>
                     )}
+                    {startDisabled && (
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 bg-amber-900/30 border border-amber-500/30 text-amber-500 rounded flex items-center shadow-sm" title="Docker Engine is not running">
+                        <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Docker Not Running
+                      </span>
+                    )}
                   </span>
                   {service.description && (
                     <span className="text-[11px] text-zinc-550 block truncate" title={service.description}>
@@ -189,6 +272,64 @@ export default function ProjectWorkspace({
                   <span className="text-[9px] font-mono text-zinc-550 block truncate bg-zinc-950/60 p-1 border border-zinc-900/60 rounded" title={service.command}>
                     {service.command}
                   </span>
+                  {dockerContainers && dockerContainers[serviceKey] && dockerContainers[serviceKey].length > 0 && (
+                    <div className="mt-2 flex flex-col space-y-1 w-full pr-4">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Containers</span>
+                        {dockerContainers[serviceKey].some(c => c.state === 'running') && (
+                          <button
+                            onClick={(e) => handleStopAllContainers(serviceKey, e)}
+                            className="text-[9px] px-1.5 py-0.5 rounded border border-red-900/50 text-red-400 hover:bg-red-950/30 transition-colors"
+                          >
+                            Stop All
+                          </button>
+                        )}
+                      </div>
+                      {dockerContainers[serviceKey].map(c => (
+                        <div key={c.name} className="flex flex-col w-full">
+                          <div className="flex items-center space-x-2 text-[10px] font-mono text-zinc-400 bg-zinc-950/40 p-1 pl-2 pr-1 border border-zinc-900/60 rounded max-w-fit">
+                            <span className="truncate max-w-[400px] flex items-center">
+                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 flex-shrink-0 ${c.state === 'running' ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.5)]' : 'bg-zinc-600'}`}></span>
+                              {c.name}
+                            </span>
+                            <div className="flex items-center space-x-1 border-l border-zinc-800 pl-2">
+                              <button
+                                onClick={(e) => toggleContainerLogs(c.name, e)}
+                                className={`transition-colors px-1 ${openLogContainers[c.name] ? 'text-primary' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                title="Toggle Logs"
+                              >
+                                Logs
+                              </button>
+                              {c.state === 'running' ? (
+                                <button
+                                  onClick={(e) => handleStopContainer(c.name, e)}
+                                  className="text-red-400/70 hover:text-red-400 transition-colors px-1"
+                                  title="Stop Container"
+                                >
+                                  Stop
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={(e) => handleStartContainer(c.name, e)}
+                                  className="text-emerald-400/70 hover:text-emerald-400 transition-colors px-1"
+                                  title="Start Container"
+                                >
+                                  Start
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {openLogContainers[c.name] && (
+                            <div className="w-full bg-[#0a0a0a] rounded border border-zinc-800/80 p-3 overflow-y-auto max-h-[600px] mt-2 mb-3 shadow-inner">
+                              <pre className="text-[10px] font-mono text-zinc-300 whitespace-pre-wrap m-0">
+                                {containerLogs[c.name] || 'Loading logs...'}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -226,11 +367,12 @@ export default function ProjectWorkspace({
                   <Button
                     variant="default"
                     size="icon"
+                    disabled={startDisabled}
                     onClick={(e) => { e.stopPropagation(); handleStartService(activeProj.id, service.id); }}
-                    className="h-7 w-7 bg-emerald-600 hover:bg-emerald-555 text-zinc-100"
-                    title="Start Service"
+                    className={`h-7 w-7 ${startDisabled ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50' : 'bg-emerald-600 hover:bg-emerald-555 text-zinc-100'}`}
+                    title={startDisabled ? "Docker is not running" : "Start Service"}
                   >
-                    <Play className="h-3 w-3 fill-zinc-150" />
+                    <Play className="h-3 w-3 fill-current" />
                   </Button>
                 )}
                 
@@ -431,7 +573,6 @@ export default function ProjectWorkspace({
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pr-1">
           {projectServices.map((s) => {
             const status = statuses[`${activeProj.id}_${s.id}`] || "Idle";
-            const logs = projectLogs[s.id] || [];
             
             return (
               <LogConsole
@@ -439,7 +580,6 @@ export default function ProjectWorkspace({
                 projectId={activeProj.id}
                 serviceId={s.id}
                 serviceName={s.name}
-                logs={logs}
                 status={status}
               />
             );
@@ -484,6 +624,7 @@ export default function ProjectWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

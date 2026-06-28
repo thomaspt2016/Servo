@@ -100,6 +100,13 @@ declare global {
         focus_main_window(): Promise<boolean>;
         get_pip_data(): Promise<{ projects: Project[]; statuses: Record<string, string> }>;
         write_to_service(projectId: string, serviceId: string, data: string): Promise<boolean>;
+        resize_terminal(projectId: string, serviceId: string, cols: number, rows: number): Promise<boolean>;
+        check_docker_status(): Promise<boolean>;
+        get_docker_containers(): Promise<Record<string, {name: string, state: string}[]>>;
+        stop_docker_container(containerName: string): Promise<boolean>;
+        start_docker_container(containerName: string): Promise<boolean>;
+        get_docker_container_logs(containerName: string): Promise<string>;
+        warmup_service_terminal(projectId: string, serviceId: string): Promise<boolean>;
         git_get_info(projectId: string): Promise<import("./types").GitInfo>;
         git_checkout_branch(projectId: string, branchName: string): Promise<{ success: boolean; message: string }>;
         git_stage_all(projectId: string): Promise<{ success: boolean; message: string }>;

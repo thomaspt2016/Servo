@@ -76,8 +76,8 @@ function App() {
   });
   // Terminal / Logs Panel State
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [projectLogs, setProjectLogs] = useState<Record<string, string[]>>({});
-  const [globalTerminalLogs, setGlobalTerminalLogs] = useState<Record<string, string[]>>({});
+
+
   
   const [terminals, setTerminals] = useState<{id: string, cwd?: string, isCollapsed?: boolean}[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
@@ -92,6 +92,8 @@ function App() {
   const [dialogError, setDialogError] = useState("");
   const [npmScripts, setNpmScripts] = useState<Record<string, string[]>>({});
   const [gitInfoMap, setGitInfoMap] = useState<Record<string, GitInfo>>({});
+  const [isDockerRunning, setIsDockerRunning] = useState<boolean>(true);
+  const [dockerContainers, setDockerContainers] = useState<Record<string, {name: string, state: string}[]>>({});
 
   const handleSelectProject = (id: string | null) => {
     setActiveProjectId(id);
@@ -136,12 +138,25 @@ function App() {
         })
       );
       const map: Record<string, GitInfo> = {};
-      results.forEach(({ id, info }) => {
-        if (info && !info.error) map[id] = info as GitInfo;
-      });
+      results.forEach((r) => { if (r.info) map[r.id] = r.info; });
       setGitInfoMap(map);
     } catch (err) {
       console.error("Error fetching git info:", err);
+    }
+  };
+
+  const fetchDockerContainers = async () => {
+    try {
+      const isRunning = await getApi().check_docker_status();
+      setIsDockerRunning(isRunning);
+      if (isRunning) {
+        const containers = await getApi().get_docker_containers();
+        setDockerContainers(containers);
+      } else {
+        setDockerContainers({});
+      }
+    } catch (err) {
+      console.error("Error fetching docker containers:", err);
     }
   };
 
@@ -220,72 +235,14 @@ function App() {
       fetchStatuses();
       fetchActivePorts();
       fetchMetrics();
+      fetchDockerContainers();
     }, 1000);
     // Refresh git info every 30s
     const gitInterval = setInterval(() => fetchAllGitInfo(), 30000);
     return () => { clearInterval(interval); clearInterval(gitInterval); };
   }, [isDesktop]);
 
-  // Poll active logs for all services in the selected project
-  useEffect(() => {
-    if (!isDesktop || !activeProjectId) {
-      setProjectLogs({});
-      return;
-    }
 
-    const activeProj = projects.find(p => p.id === activeProjectId);
-    if (!activeProj || !activeProj.services || activeProj.services.length === 0) {
-      setProjectLogs({});
-      return;
-    }
-
-    const fetchAllLogs = async () => {
-      try {
-        const logsPromises = activeProj.services.map(async (s) => {
-          const logs = await getApi().get_logs(activeProjectId, s.id);
-          return { serviceId: s.id, logs };
-        });
-        const results = await Promise.all(logsPromises);
-        const newLogs: Record<string, string[]> = {};
-        results.forEach(res => {
-          newLogs[res.serviceId] = res.logs;
-        });
-        setProjectLogs(newLogs);
-      } catch (err) {
-        console.error("Error reading project logs:", err);
-      }
-    };
-
-    fetchAllLogs();
-    const interval = setInterval(fetchAllLogs, 1000);
-    return () => clearInterval(interval);
-  }, [isDesktop, activeProjectId, projects]);
-
-  // Poll terminal logs
-  useEffect(() => {
-    if (!isDesktop || !showTerminalPanel || terminals.length === 0) return;
-    
-    const fetchTerminalLogs = async () => {
-      try {
-        const logsPromises = terminals.map(async (t) => {
-          const logs = await getApi().get_logs("terminal", t.id);
-          return { id: t.id, logs };
-        });
-        const results = await Promise.all(logsPromises);
-        const newLogs: Record<string, string[]> = {};
-        results.forEach(res => {
-          newLogs[res.id] = res.logs;
-        });
-        setGlobalTerminalLogs(newLogs);
-      } catch (err) {
-        console.error("Error reading terminal logs:", err);
-      }
-    };
-    
-    fetchTerminalLogs();
-    const interval = setInterval(fetchTerminalLogs, 1000);
-    return () => clearInterval(interval);
-  }, [isDesktop, showTerminalPanel, terminals]);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -307,6 +264,14 @@ function App() {
       if (getApi().get_dependency_statuses) {
         const depData = await getApi().get_dependency_statuses();
         setDependencyStatuses(depData);
+      }
+      if (getApi().check_docker_status) {
+        const dockerStatus = await getApi().check_docker_status();
+        setIsDockerRunning(dockerStatus);
+      }
+      if (getApi().get_docker_containers) {
+        const containers = await getApi().get_docker_containers();
+        setDockerContainers(containers);
       }
     } catch (err) {
       console.error("Error fetching statuses:", err);
@@ -1098,8 +1063,9 @@ function App() {
                   statuses={statuses}
                   dependencyStatuses={dependencyStatuses}
                   activePorts={activePorts}
+                  isDockerRunning={isDockerRunning}
+                  dockerContainers={dockerContainers}
                   metrics={metrics}
-                  projectLogs={projectLogs}
                   handleStopProject={handleStopProject}
                   handleStartProject={handleStartProject}
                   handleDuplicateClick={handleDuplicateClick}
@@ -1148,7 +1114,6 @@ function App() {
                     projectId="terminal"
                     serviceId={t.id}
                     serviceName={`Terminal ${index + 1}`}
-                    logs={globalTerminalLogs[t.id] || []}
                     status={statuses[`terminal_${t.id}`] || "Running"}
                     isCollapsed={t.isCollapsed}
                     onToggleCollapse={() => {
