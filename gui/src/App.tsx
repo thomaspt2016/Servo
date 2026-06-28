@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
-import type { Project, Service, FormState } from "./types";
+import type { Project, Service, FormState, GitInfo } from "./types";
 import { PipView } from './components/PipView';
 import { LogConsole } from './components/LogConsole';
 
@@ -91,6 +91,7 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [dialogError, setDialogError] = useState("");
   const [npmScripts, setNpmScripts] = useState<Record<string, string[]>>({});
+  const [gitInfoMap, setGitInfoMap] = useState<Record<string, GitInfo>>({});
 
   const handleSelectProject = (id: string | null) => {
     setActiveProjectId(id);
@@ -117,6 +118,30 @@ function App() {
       setInstalledLanguages(langs);
     } catch (err) {
       console.error("Error fetching installed languages:", err);
+    }
+  };
+
+  const fetchAllGitInfo = async (projectList?: Project[]) => {
+    const list = projectList ?? projects;
+    if (!list.length) return;
+    try {
+      const results = await Promise.all(
+        list.map(async (p) => {
+          try {
+            const info = await getApi().git_get_info(p.id);
+            return { id: p.id, info };
+          } catch {
+            return { id: p.id, info: null };
+          }
+        })
+      );
+      const map: Record<string, GitInfo> = {};
+      results.forEach(({ id, info }) => {
+        if (info && !info.error) map[id] = info as GitInfo;
+      });
+      setGitInfoMap(map);
+    } catch (err) {
+      console.error("Error fetching git info:", err);
     }
   };
 
@@ -196,7 +221,9 @@ function App() {
       fetchActivePorts();
       fetchMetrics();
     }, 1000);
-    return () => clearInterval(interval);
+    // Refresh git info every 30s
+    const gitInterval = setInterval(() => fetchAllGitInfo(), 30000);
+    return () => { clearInterval(interval); clearInterval(gitInterval); };
   }, [isDesktop]);
 
   // Poll active logs for all services in the selected project
@@ -265,6 +292,7 @@ function App() {
     try {
       const data = await getApi().load_projects();
       setProjects(data);
+      fetchAllGitInfo(data);
     } catch (err) {
       console.error("Error loading projects:", err);
     } finally {
@@ -953,6 +981,7 @@ function App() {
           activeProjectId={activeProjectId}
           setActiveProjectId={handleSelectProject}
           statuses={statuses}
+          gitInfoMap={gitInfoMap}
           handleNewClick={handleNewClick}
           handleEditClick={handleEditClick}
           handleDeleteClick={handleDeleteClick}
@@ -1083,6 +1112,10 @@ function App() {
                   autoScroll={autoScroll}
                   setAutoScroll={setAutoScroll}
                   onBack={() => setActiveProjectId(null)}
+                  onGitInfoChange={(projectId, info) => {
+                    if (info) setGitInfoMap(prev => ({ ...prev, [projectId]: info }));
+                    else setGitInfoMap(prev => { const next = { ...prev }; delete next[projectId]; return next; });
+                  }}
                 />
               </Suspense>
             );

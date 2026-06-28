@@ -1,8 +1,8 @@
 import React from "react";
-import { Layers, Plus, Search, X, RefreshCw, Edit2, Trash2 } from "lucide-react";
+import { Layers, Plus, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Project } from "../types";
+import type { Project, GitInfo } from "../types";
 
 export interface SidebarProps {
   categories: string[];
@@ -15,6 +15,7 @@ export interface SidebarProps {
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
   statuses: Record<string, string>;
+  gitInfoMap: Record<string, GitInfo>;
   handleNewClick: () => void;
   handleEditClick: (project: Project, e: React.MouseEvent) => void;
   handleDeleteClick: (id: string, e: React.MouseEvent) => void;
@@ -31,6 +32,7 @@ export default function Sidebar({
   activeProjectId,
   setActiveProjectId,
   statuses,
+  gitInfoMap,
   handleNewClick,
   handleEditClick,
   handleDeleteClick,
@@ -169,6 +171,45 @@ export default function Sidebar({
                     </div>
                   </div>
                   
+                  {/* Git stats row */}
+                  {gitInfoMap[project.id] && (
+                    <div className="flex items-center space-x-1.5 pt-1.5 border-t border-zinc-900/50 group-hover:border-zinc-800/80 transition-colors">
+                      {/* Branch */}
+                      <span className="flex items-center space-x-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800/60 text-zinc-400 max-w-[90px] truncate">
+                        <GitBranch className="h-2 w-2 text-primary/60 flex-shrink-0" />
+                        <span className="truncate">{gitInfoMap[project.id].branch}</span>
+                      </span>
+
+                      {/* Changes or clean */}
+                      {gitInfoMap[project.id].has_changes ? (
+                        <span className="flex items-center space-x-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-950/40 border border-amber-900/30 text-amber-400">
+                          <Circle className="h-1.5 w-1.5 fill-amber-400" />
+                          <span>{gitInfoMap[project.id].changes.length}</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center space-x-0.5 text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/30 border border-emerald-900/30 text-emerald-400">
+                          <Check className="h-2 w-2" />
+                        </span>
+                      )}
+
+                      {/* Ahead */}
+                      {gitInfoMap[project.id].ahead > 0 && (
+                        <span className="flex items-center space-x-0.5 text-[9px] px-1 py-0.5 rounded bg-sky-950/40 border border-sky-900/30 text-sky-400">
+                          <ArrowUp className="h-2 w-2" />
+                          <span>{gitInfoMap[project.id].ahead}</span>
+                        </span>
+                      )}
+
+                      {/* Behind */}
+                      {gitInfoMap[project.id].behind > 0 && (
+                        <span className="flex items-center space-x-0.5 text-[9px] px-1 py-0.5 rounded bg-amber-950/40 border border-amber-900/30 text-amber-400">
+                          <ArrowDown className="h-2 w-2" />
+                          <span>{gitInfoMap[project.id].behind}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-[9px] font-medium pt-2.5 border-t border-zinc-900/50 group-hover:border-zinc-800/80 transition-colors">
                     <div className="flex items-center space-x-1.5 truncate pr-2">
                       <span className="px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 truncate">

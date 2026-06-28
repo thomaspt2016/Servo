@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft } from "lucide-react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LogConsole } from "./LogConsole";
+import { GitPanel } from "./GitPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import type { Project } from "../types";
+import type { Project, GitInfo } from "../types";
 
 export interface ProjectWorkspaceProps {
   activeProj: Project;
@@ -26,6 +27,7 @@ export interface ProjectWorkspaceProps {
   autoScroll: boolean;
   setAutoScroll: (val: boolean) => void;
   onBack?: () => void;
+  onGitInfoChange?: (projectId: string, info: GitInfo | null) => void;
 }
 
 export default function ProjectWorkspace({
@@ -47,16 +49,19 @@ export default function ProjectWorkspace({
   autoScroll,
   setAutoScroll,
   onBack,
+  onGitInfoChange,
 }: ProjectWorkspaceProps) {
   const projectServices = activeProj.services || [];
   const anyRunning = projectServices.some(s => statuses[`${activeProj.id}_${s.id}`] === "Running");
 
+  const [showGitPanel, setShowGitPanel] = useState(false);
+  const [gitSummary, setGitSummary] = useState<GitInfo | null>(null);
   const [alertConfig, setAlertConfig] = useState<{ open: boolean, title: string, message: React.ReactNode }>({ open: false, title: "", message: "" });
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean, title: string, message: React.ReactNode, onConfirm: () => void }>({ open: false, title: "", message: "", onConfirm: () => {} });
 
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden p-6 gap-6">
+    <div className="flex-1 flex flex-col overflow-y-auto p-6 gap-6">
       {/* Project Header Card */}
       <Card className="border-zinc-900 bg-zinc-950/40 relative shadow-sm">
         <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -337,8 +342,76 @@ export default function ProjectWorkspace({
         })}
       </div>
 
+      {/* Git Integration Panel */}
+      <div className="border-t border-zinc-900/60 pt-4">
+        {/* Clickable header — always visible, shows summary when collapsed */}
+        <button
+          onClick={() => setShowGitPanel(v => !v)}
+          className="w-full flex items-center justify-between mb-3 px-1 group"
+        >
+          <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center space-x-2 group-hover:text-zinc-300 transition-colors">
+            <GitBranch className="h-4 w-4 text-primary" />
+            <span>Git Integration</span>
+          </h4>
+
+          <div className="flex items-center space-x-2">
+            {/* Summary badges — visible when collapsed OR always */}
+            {gitSummary && !gitSummary.error && (
+              <div className="flex items-center space-x-1.5">
+                {/* Branch pill */}
+                <span className="flex items-center space-x-1 text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300">
+                  <GitBranch className="h-2.5 w-2.5 text-primary/70" />
+                  <span className="max-w-[100px] truncate">{gitSummary.branch}</span>
+                </span>
+
+                {/* Changes badge */}
+                {gitSummary.has_changes ? (
+                  <span className="flex items-center space-x-1 text-[10px] px-1.5 py-0.5 rounded-md bg-amber-950/40 border border-amber-900/30 text-amber-400">
+                    <Circle className="h-2 w-2 fill-amber-400" />
+                    <span>{gitSummary.changes.length}</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center space-x-1 text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-950/30 border border-emerald-900/30 text-emerald-400">
+                    <Check className="h-2.5 w-2.5" />
+                    <span>Clean</span>
+                  </span>
+                )}
+
+                {/* Ahead badge */}
+                {gitSummary.ahead > 0 && (
+                  <span className="flex items-center space-x-0.5 text-[10px] px-1.5 py-0.5 rounded-md bg-sky-950/40 border border-sky-900/30 text-sky-400">
+                    <ArrowUp className="h-2.5 w-2.5" />
+                    <span>{gitSummary.ahead}</span>
+                  </span>
+                )}
+
+                {/* Behind badge */}
+                {gitSummary.behind > 0 && (
+                  <span className="flex items-center space-x-0.5 text-[10px] px-1.5 py-0.5 rounded-md bg-amber-950/40 border border-amber-900/30 text-amber-400">
+                    <ArrowDown className="h-2.5 w-2.5" />
+                    <span>{gitSummary.behind}</span>
+                  </span>
+                )}
+              </div>
+            )}
+
+            <ChevronDown className={`h-3.5 w-3.5 text-zinc-500 group-hover:text-zinc-300 transition-all ${showGitPanel ? "" : "-rotate-90"}`} />
+          </div>
+        </button>
+
+        <div className={`mb-4 ${showGitPanel ? "" : "hidden"}`}>
+          <GitPanel
+            projectId={activeProj.id}
+            onInfoChange={(info) => {
+              setGitSummary(info);
+              onGitInfoChange?.(activeProj.id, info);
+            }}
+          />
+        </div>
+      </div>
+
       {/* Terminals Grid - Displaying all services concurrently */}
-      <div className="flex-1 flex flex-col min-h-0 border-t border-zinc-900/60 pt-4">
+      <div className="flex flex-col border-t border-zinc-900/60 pt-4">
         <div className="flex items-center justify-between mb-3 px-1">
           <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center space-x-2">
             <Terminal className="h-4 w-4 text-primary" />
@@ -355,7 +428,7 @@ export default function ProjectWorkspace({
           </label>
         </div>
         
-        <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-4 overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pr-1">
           {projectServices.map((s) => {
             const status = statuses[`${activeProj.id}_${s.id}`] || "Idle";
             const logs = projectLogs[s.id] || [];

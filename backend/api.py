@@ -570,3 +570,259 @@ class Api:
         projects = self._load_from_json()
         statuses = self.get_statuses()
         return {"projects": projects, "statuses": statuses}
+
+    # ── Git Integration ──────────────────────────────────────────────────────
+
+    def _run_git(self, args, cwd):
+        """Run a git command in the given directory and return (stdout, stderr, returncode)."""
+        try:
+            result = subprocess.run(
+                ["git"] + args,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            return result.stdout.strip('\r\n'), result.stderr.strip('\r\n'), result.returncode
+        except FileNotFoundError:
+            return "", "git not found", 1
+        except subprocess.TimeoutExpired:
+            return "", "git command timed out", 1
+        except Exception as e:
+            return "", str(e), 1
+
+    def git_get_info(self, project_id):
+        """
+        Return git information for a project: branch, status, recent commits,
+        stash list, and remotes. Uses the first service's path as the repo root.
+        """
+        projects = self._load_from_json()
+        project = next((p for p in projects if p.get("id") == project_id), None)
+        if not project or not project.get("services"):
+            return {"error": "Project not found"}
+
+        repo_path = project["services"][0].get("path", "")
+        if not repo_path or not os.path.isdir(repo_path):
+            return {"error": "Invalid project path"}
+
+        # Check if it's actually a git repo
+        _, _, rc = self._run_git(["rev-parse", "--is-inside-work-tree"], repo_path)
+        if rc != 0:
+            return {"error": "Not a git repository"}
+
+        # Get repo root (in case service path is a subdirectory)
+        root_out, _, _ = self._run_git(["rev-parse", "--show-toplevel"], repo_path)
+        git_root = root_out if root_out else repo_path
+
+        result = {}
+
+        # Current branch
+        branch_out, _, _ = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], git_root)
+        result["branch"] = branch_out or "HEAD"
+
+        # All local branches
+        branches_out, _, _ = self._run_git(["branch", "--format=%(refname:short)"], git_root)
+        result["branches"] = [b for b in branches_out.splitlines() if b] if branches_out else []
+
+        # Uncommitted changes (porcelain format)
+        status_out, _, _ = self._run_git(["status", "--porcelain=v1"], git_root)
+        changes = []
+        if status_out:
+            for line in status_out.splitlines():
+                if len(line) >= 3:
+                    xy = line[:2]
+                    filepath = line[3:]
+                    index_status = xy[0]
+                    worktree_status = xy[1]
+                    
+                    change_type = "modified"
+                    if index_status == "?" and worktree_status == "?":
+                        change_type = "untracked"
+                    elif index_status == "A":
+                        change_type = "added"
+                    elif index_status == "D" or worktree_status == "D":
+                        change_type = "deleted"
+                    elif index_status == "R":
+                        change_type = "renamed"
+                    elif index_status == "M" or worktree_status == "M":
+                        change_type = "modified"
+                    
+                    staged = index_status not in [" ", "?"]
+                    changes.append({
+                        "file": filepath,
+                        "type": change_type,
+                        "staged": staged
+                    })
+        result["changes"] = changes
+        result["has_changes"] = len(changes) > 0
+
+        # Recent commits (last 15)
+        log_out, _, _ = self._run_git(
+            ["log", "--oneline", "--format=%H|%s|%an|%ar", "-n", "15"],
+            git_root
+        )
+        commits = []
+        if log_out:
+            for line in log_out.splitlines():
+                parts = line.split("|", 3)
+                if len(parts) == 4:
+                    commits.append({
+                        "hash": parts[0][:7],
+                        "full_hash": parts[0],
+                        "message": parts[1],
+                        "author": parts[2],
+                        "time": parts[3]
+                    })
+        result["commits"] = commits
+
+        # Stash list
+        stash_out, _, _ = self._run_git(["stash", "list", "--format=%gd: %s"], git_root)
+        result["stashes"] = [s for s in stash_out.splitlines() if s] if stash_out else []
+
+        # Remote info
+        remote_out, _, _ = self._run_git(["remote", "-v"], git_root)
+        remotes = {}
+        if remote_out:
+            for line in remote_out.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and "(fetch)" in line:
+                    remotes[parts[0]] = parts[1]
+        result["remotes"] = remotes
+
+        # Ahead / behind relative to tracking branch
+        ahead_behind_out, _, _ = self._run_git(
+            ["rev-list", "--left-right", "--count", "HEAD...@{u}"],
+            git_root
+        )
+        if ahead_behind_out:
+            parts = ahead_behind_out.split()
+            if len(parts) == 2:
+                result["ahead"] = int(parts[0])
+                result["behind"] = int(parts[1])
+            else:
+                result["ahead"] = 0
+                result["behind"] = 0
+        else:
+            result["ahead"] = 0
+            result["behind"] = 0
+
+        result["repo_root"] = git_root
+        logger.info(f"Git info fetched for project '{project.get('name')}' on branch '{result['branch']}'")
+        return result
+
+    def git_checkout_branch(self, project_id, branch_name):
+        """Checkout a local branch for the given project."""
+        projects = self._load_from_json()
+        project = next((p for p in projects if p.get("id") == project_id), None)
+        if not project or not project.get("services"):
+            return {"success": False, "message": "Project not found"}
+
+        repo_path = project["services"][0].get("path", "")
+        if not repo_path or not os.path.isdir(repo_path):
+            return {"success": False, "message": "Invalid project path"}
+
+        root_out, _, _ = self._run_git(["rev-parse", "--show-toplevel"], repo_path)
+        git_root = root_out if root_out else repo_path
+
+        stdout, stderr, rc = self._run_git(["checkout", branch_name], git_root)
+        if rc == 0:
+            logger.info(f"Checked out branch '{branch_name}' for project '{project.get('name')}'")
+            return {"success": True, "message": f"Switched to branch '{branch_name}'"}
+        else:
+            logger.error(f"Failed to checkout branch '{branch_name}': {stderr}")
+            return {"success": False, "message": stderr or "Failed to checkout branch"}
+
+    def _get_git_root(self, project_id):
+        """Helper: resolve the git root for a project. Returns (git_root, error_dict|None)."""
+        projects = self._load_from_json()
+        project = next((p for p in projects if p.get("id") == project_id), None)
+        if not project or not project.get("services"):
+            return None, {"success": False, "message": "Project not found"}
+        repo_path = project["services"][0].get("path", "")
+        if not repo_path or not os.path.isdir(repo_path):
+            return None, {"success": False, "message": "Invalid project path"}
+        root_out, _, _ = self._run_git(["rev-parse", "--show-toplevel"], repo_path)
+        return root_out if root_out else repo_path, None
+
+    def git_stage_all(self, project_id):
+        """Stage all changes (git add -A)."""
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        _, stderr, rc = self._run_git(["add", "-A"], git_root)
+        if rc == 0:
+            logger.info(f"Staged all changes for project '{project_id}'")
+            return {"success": True, "message": "All changes staged"}
+        return {"success": False, "message": stderr or "git add -A failed"}
+
+    def git_stage_file(self, project_id, filepath):
+        """Stage a single file (git add <file>)."""
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        _, stderr, rc = self._run_git(["add", filepath], git_root)
+        if rc == 0:
+            logger.info(f"Staged file '{filepath}' for project '{project_id}'")
+            return {"success": True, "message": f"Staged: {filepath}"}
+        return {"success": False, "message": stderr or "git add failed"}
+
+    def git_unstage_file(self, project_id, filepath):
+        """Unstage a single file (git restore --staged <file>)."""
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        _, stderr, rc = self._run_git(["restore", "--staged", filepath], git_root)
+        if rc == 0:
+            logger.info(f"Unstaged file '{filepath}' for project '{project_id}'")
+            return {"success": True, "message": f"Unstaged: {filepath}"}
+        return {"success": False, "message": stderr or "git restore --staged failed"}
+
+    def git_unstage_all(self, project_id):
+        """Unstage all staged changes (git restore --staged .)."""
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        _, stderr, rc = self._run_git(["restore", "--staged", "."], git_root)
+        if rc == 0:
+            logger.info(f"Unstaged all changes for project '{project_id}'")
+            return {"success": True, "message": "All changes unstaged"}
+        return {"success": False, "message": stderr or "git restore --staged failed"}
+
+    def git_commit(self, project_id, message):
+        """Commit staged changes with the given message."""
+        if not message or not message.strip():
+            return {"success": False, "message": "Commit message cannot be empty"}
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        stdout, stderr, rc = self._run_git(["commit", "-m", message.strip()], git_root)
+        if rc == 0:
+            logger.info(f"Committed for project '{project_id}': {message.strip()[:60]}")
+            return {"success": True, "message": stdout or "Commit successful"}
+        
+        err_msg = stderr if stderr else (stdout if stdout else "git commit failed")
+        if "nothing to commit" in err_msg:
+            return {"success": False, "message": "Nothing to commit, working tree clean"}
+            
+        return {"success": False, "message": err_msg}
+
+    def git_push(self, project_id, remote="origin", branch=""):
+        """Push commits to remote. Defaults to origin and the current branch."""
+        git_root, err = self._get_git_root(project_id)
+        if err:
+            return err
+        # If no branch given, use current branch
+        if not branch:
+            branch_out, _, _ = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], git_root)
+            branch = branch_out.strip() if branch_out else "main"
+        args = ["push", remote, branch]
+        stdout, stderr, rc = self._run_git(args, git_root)
+        if rc == 0:
+            logger.info(f"Pushed '{branch}' to '{remote}' for project '{project_id}'")
+            # git push often writes success output to stderr
+            success_msg = stdout if stdout else (stderr if stderr else f"Pushed to {remote}/{branch}")
+            return {"success": True, "message": success_msg}
+            
+        err_msg = stderr if stderr else (stdout if stdout else "git push failed")
+        return {"success": False, "message": err_msg}
+

@@ -10,6 +10,34 @@ export interface Service {
   target_port?: string | number;
 }
 
+export interface GitChange {
+  file: string;
+  type: "modified" | "added" | "deleted" | "renamed" | "untracked";
+  staged: boolean;
+}
+
+export interface GitCommit {
+  hash: string;
+  full_hash: string;
+  message: string;
+  author: string;
+  time: string;
+}
+
+export interface GitInfo {
+  branch: string;
+  branches: string[];
+  changes: GitChange[];
+  has_changes: boolean;
+  commits: GitCommit[];
+  stashes: string[];
+  remotes: Record<string, string>;
+  ahead: number;
+  behind: number;
+  repo_root: string;
+  error?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -72,6 +100,14 @@ declare global {
         focus_main_window(): Promise<boolean>;
         get_pip_data(): Promise<{ projects: Project[]; statuses: Record<string, string> }>;
         write_to_service(projectId: string, serviceId: string, data: string): Promise<boolean>;
+        git_get_info(projectId: string): Promise<import("./types").GitInfo>;
+        git_checkout_branch(projectId: string, branchName: string): Promise<{ success: boolean; message: string }>;
+        git_stage_all(projectId: string): Promise<{ success: boolean; message: string }>;
+        git_stage_file(projectId: string, filepath: string): Promise<{ success: boolean; message: string }>;
+        git_unstage_file(projectId: string, filepath: string): Promise<{ success: boolean; message: string }>;
+        git_unstage_all(projectId: string): Promise<{ success: boolean; message: string }>;
+        git_commit(projectId: string, message: string): Promise<{ success: boolean; message: string }>;
+        git_push(projectId: string, remote?: string, branch?: string): Promise<{ success: boolean; message: string }>;
       };
     };
     writeToTerminalUI?: (key: string, data: string) => void;
