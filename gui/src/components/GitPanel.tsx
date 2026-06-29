@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   GitBranch,
   GitCommit,
@@ -25,7 +25,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { GitInfo, GitChange } from "../types";
+import type { GitInfo, GitChange, GitRepo } from "../types";
 
 interface GitPanelProps {
   projectId: string;
@@ -119,6 +119,9 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutMsg, setCheckoutMsg] = useState<string | null>(null);
+  const [repos, setRepos] = useState<GitRepo[]>([]);
+  const [activeRepoPath, setActiveRepoPath] = useState<string | null>(null);
+  const activeRepoPathRef = useRef<string | null>(null);
   const [activeTab, setActiveTab] = useState<"changes" | "commits" | "info">("changes");
 
   // Git operations state
@@ -136,7 +139,33 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      const info = await window.pywebview.api.git_get_info(projectId);
+      const reposRes = await window.pywebview.api.git_get_repos(projectId);
+      if (reposRes.error) {
+        setError(reposRes.error);
+        setGitInfo(null);
+        setRepos([]);
+        onInfoChange?.(null);
+        return;
+      }
+      
+      const foundRepos = reposRes.repos || [];
+      setRepos(foundRepos);
+      
+      if (foundRepos.length === 0) {
+        setError("Not a git repository");
+        setGitInfo(null);
+        onInfoChange?.(null);
+        return;
+      }
+      
+      let targetRepo = activeRepoPathRef.current;
+      if (!targetRepo || !foundRepos.find(r => r.path === targetRepo)) {
+        targetRepo = foundRepos[0].path;
+        activeRepoPathRef.current = targetRepo;
+        setActiveRepoPath(targetRepo);
+      }
+      
+      const info = await window.pywebview.api.git_get_info(projectId, targetRepo);
       if (info.error) {
         setError(info.error);
         setGitInfo(null);
@@ -160,14 +189,14 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
   }, [fetchGitInfo]);
 
   const handleCheckout = async (branch: string) => {
-    if (!window.pywebview?.api || branch === gitInfo?.branch) {
+    if (!window.pywebview?.api || branch === gitInfo?.branch || !activeRepoPathRef.current) {
       setBranchDropdownOpen(false);
       return;
     }
     setCheckingOut(true);
     setBranchDropdownOpen(false);
     try {
-      const res = await window.pywebview.api.git_checkout_branch(projectId, branch);
+      const res = await window.pywebview.api.git_checkout_branch(projectId, activeRepoPathRef.current, branch);
       setCheckoutMsg(res.message);
       if (res.success) {
         await fetchGitInfo();
@@ -195,13 +224,13 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
     }
   };
 
-  const handleStageAll   = () => runOp("stageAll",   () => window.pywebview!.api.git_stage_all(projectId));
-  const handleUnstageAll = () => runOp("unstageAll", () => window.pywebview!.api.git_unstage_all(projectId));
-  const handleStageFile  = (f: string) => runOp(`stage:${f}`,   () => window.pywebview!.api.git_stage_file(projectId, f));
-  const handleUnstageFile= (f: string) => runOp(`unstage:${f}`, () => window.pywebview!.api.git_unstage_file(projectId, f));
+  const handleStageAll   = () => runOp("stageAll",   () => window.pywebview!.api.git_stage_all(projectId, activeRepoPathRef.current!));
+  const handleUnstageAll = () => runOp("unstageAll", () => window.pywebview!.api.git_unstage_all(projectId, activeRepoPathRef.current!));
+  const handleStageFile  = (f: string) => runOp(`stage:${f}`,   () => window.pywebview!.api.git_stage_file(projectId, activeRepoPathRef.current!, f));
+  const handleUnstageFile= (f: string) => runOp(`unstage:${f}`, () => window.pywebview!.api.git_unstage_file(projectId, activeRepoPathRef.current!, f));
 
   const handleCommit = () => runOp("commit", async () => {
-    const res = await window.pywebview!.api.git_commit(projectId, commitMsg);
+    const res = await window.pywebview!.api.git_commit(projectId, activeRepoPathRef.current!, commitMsg);
     if (res.success) setCommitMsg("");
     return res;
   });
@@ -209,6 +238,7 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
   const handlePush = () => runOp("push", () =>
     window.pywebview!.api.git_push(
       projectId,
+      activeRepoPathRef.current!,
       Object.keys(gitInfo?.remotes ?? {})[0] || "origin",
       gitInfo?.branch || ""
     )
@@ -250,10 +280,37 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
 
   return (
     <div className="flex flex-col space-y-4">
-      {/* Header row: branch switcher + sync status + refresh */}
+      {/* Header row: Repo badges + branch switcher + sync status + refresh */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        {/* Branch Switcher */}
-        <div className="relative">
+        
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Repo Badges (if multiple) */}
+          {repos.length > 1 && (
+            <div className="flex items-center space-x-1.5 mr-2">
+              {repos.map(r => (
+                <button
+                  key={r.path}
+                  onClick={() => {
+                    activeRepoPathRef.current = r.path;
+                    setActiveRepoPath(r.path);
+                    fetchGitInfo();
+                  }}
+                  className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all ${
+                    activeRepoPath === r.path
+                      ? "bg-primary/20 border-primary/50 text-primary"
+                      : "bg-zinc-950/60 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900"
+                  }`}
+                  title={r.path}
+                >
+                  {r.name}
+                </button>
+              ))}
+              <div className="h-4 w-px bg-zinc-800 ml-1"></div>
+            </div>
+          )}
+
+          {/* Branch Switcher */}
+          <div className="relative">
           <button
             onClick={() => setBranchDropdownOpen(v => !v)}
             disabled={checkingOut}
@@ -288,6 +345,7 @@ export function GitPanel({ projectId, onInfoChange }: GitPanelProps) {
               </div>
             </>
           )}
+        </div>
         </div>
 
         {/* Sync Status (ahead/behind) */}

@@ -37,6 +37,11 @@ export interface GitInfo {
   repo_root: string;
   error?: string;
 }
+export interface GitRepo {
+  path: string;
+  name: string;
+  has_remote: boolean;
+}
 
 export interface Project {
   id: string;
@@ -107,14 +112,15 @@ declare global {
         start_docker_container(containerName: string): Promise<boolean>;
         get_docker_container_logs(containerName: string): Promise<string>;
         warmup_service_terminal(projectId: string, serviceId: string): Promise<boolean>;
-        git_get_info(projectId: string): Promise<import("./types").GitInfo>;
-        git_checkout_branch(projectId: string, branchName: string): Promise<{ success: boolean; message: string }>;
-        git_stage_all(projectId: string): Promise<{ success: boolean; message: string }>;
-        git_stage_file(projectId: string, filepath: string): Promise<{ success: boolean; message: string }>;
-        git_unstage_file(projectId: string, filepath: string): Promise<{ success: boolean; message: string }>;
-        git_unstage_all(projectId: string): Promise<{ success: boolean; message: string }>;
-        git_commit(projectId: string, message: string): Promise<{ success: boolean; message: string }>;
-        git_push(projectId: string, remote?: string, branch?: string): Promise<{ success: boolean; message: string }>;
+        git_get_repos(projectId: string): Promise<{ repos?: import("./types").GitRepo[]; error?: string }>;
+        git_get_info(projectId: string, repoPath: string): Promise<import("./types").GitInfo>;
+        git_checkout_branch(projectId: string, repoPath: string, branchName: string): Promise<{ success: boolean; message: string }>;
+        git_stage_all(projectId: string, repoPath: string): Promise<{ success: boolean; message: string }>;
+        git_stage_file(projectId: string, repoPath: string, filepath: string): Promise<{ success: boolean; message: string }>;
+        git_unstage_file(projectId: string, repoPath: string, filepath: string): Promise<{ success: boolean; message: string }>;
+        git_unstage_all(projectId: string, repoPath: string): Promise<{ success: boolean; message: string }>;
+        git_commit(projectId: string, repoPath: string, message: string): Promise<{ success: boolean; message: string }>;
+        git_push(projectId: string, repoPath: string, remote?: string, branch?: string): Promise<{ success: boolean; message: string }>;
       };
     };
     writeToTerminalUI?: (key: string, data: string) => void;

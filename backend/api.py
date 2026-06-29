@@ -674,19 +674,69 @@ class Api:
         except Exception as e:
             return "", str(e), 1
 
-    def git_get_info(self, project_id):
+    def git_get_repos(self, project_id):
         """
-        Return git information for a project: branch, status, recent commits,
-        stash list, and remotes. Uses the first service's path as the repo root.
+        Scan the project's root directory and return a list of discovered Git repositories.
         """
         projects = self._load_from_json()
         project = next((p for p in projects if p.get("id") == project_id), None)
         if not project or not project.get("services"):
             return {"error": "Project not found"}
+        
+        paths = [os.path.abspath(srv.get("path")) for srv in project["services"] if srv.get("path") and os.path.isdir(srv.get("path"))]
+        if not paths:
+            return {"repos": []}
+            
+        project_root = os.path.commonpath(paths)
+        discovered_repos = []
+        
+        for root, dirs, files in os.walk(project_root):
+            # Calculate depth relative to project_root
+            rel_path = os.path.relpath(root, project_root)
+            depth = 0 if rel_path == '.' else rel_path.count(os.sep) + 1
+            
+            if depth >= 2:
+                dirs.clear() # Don't search too deep
+                
+            if '.git' in dirs:
+                discovered_repos.append(root)
+                dirs.remove('.git') # Don't traverse inside .git
+                
+            # Skip heavy/unrelated directories
+            for ignore in ['node_modules', 'venv', '.venv', '__pycache__', 'build', 'dist', '.idea', '.vscode', '.next']:
+                if ignore in dirs:
+                    dirs.remove(ignore)
+        
+        repos = []
+        for repo_path in discovered_repos:
+            # Check if it has a remote
+            remote_out, _, _ = self._run_git(["remote", "-v"], repo_path)
+            has_remote = len(remote_out.strip()) > 0
+            
+            repo_name = os.path.basename(repo_path)
+            if repo_path == project_root:
+                repo_name = f"{project.get('name')} (Root)"
+                
+            repos.append({
+                "path": repo_path.replace('\\', '/'),
+                "name": repo_name,
+                "has_remote": has_remote
+            })
+            
+        return {"repos": repos}
 
-        repo_path = project["services"][0].get("path", "")
+    def git_get_info(self, project_id, repo_path):
+        """
+        Return git information for a specific repository: branch, status, recent commits,
+        stash list, and remotes.
+        """
+        projects = self._load_from_json()
+        project = next((p for p in projects if p.get("id") == project_id), None)
+        if not project:
+            return {"error": "Project not found"}
+
         if not repo_path or not os.path.isdir(repo_path):
-            return {"error": "Invalid project path"}
+            return {"error": "Invalid repository path"}
 
         # Check if it's actually a git repo
         _, _, rc = self._run_git(["rev-parse", "--is-inside-work-tree"], repo_path)
@@ -793,19 +843,16 @@ class Api:
         logger.info(f"Git info fetched for project '{project.get('name')}' on branch '{result['branch']}'")
         return result
 
-    def git_checkout_branch(self, project_id, branch_name):
-        """Checkout a local branch for the given project."""
+    def git_checkout_branch(self, project_id, repo_path, branch_name):
+        """Checkout a local branch for the given repository."""
         projects = self._load_from_json()
         project = next((p for p in projects if p.get("id") == project_id), None)
-        if not project or not project.get("services"):
+        if not project:
             return {"success": False, "message": "Project not found"}
 
-        repo_path = project["services"][0].get("path", "")
-        if not repo_path or not os.path.isdir(repo_path):
-            return {"success": False, "message": "Invalid project path"}
-
-        root_out, _, _ = self._run_git(["rev-parse", "--show-toplevel"], repo_path)
-        git_root = root_out if root_out else repo_path
+        git_root, err = self._validate_git_root(project_id, repo_path)
+        if err:
+            return err
 
         stdout, stderr, rc = self._run_git(["checkout", branch_name], git_root)
         if rc == 0:
@@ -815,21 +862,19 @@ class Api:
             logger.error(f"Failed to checkout branch '{branch_name}': {stderr}")
             return {"success": False, "message": stderr or "Failed to checkout branch"}
 
-    def _get_git_root(self, project_id):
-        """Helper: resolve the git root for a project. Returns (git_root, error_dict|None)."""
-        projects = self._load_from_json()
-        project = next((p for p in projects if p.get("id") == project_id), None)
-        if not project or not project.get("services"):
-            return None, {"success": False, "message": "Project not found"}
-        repo_path = project["services"][0].get("path", "")
+    def _validate_git_root(self, project_id, repo_path):
+        """Helper: resolve and validate the git root for a given path. Returns (git_root, error_dict|None)."""
         if not repo_path or not os.path.isdir(repo_path):
-            return None, {"success": False, "message": "Invalid project path"}
+            return None, {"success": False, "message": "Invalid repository path"}
+        _, _, rc = self._run_git(["rev-parse", "--is-inside-work-tree"], repo_path)
+        if rc != 0:
+            return None, {"success": False, "message": "Not a git repository"}
         root_out, _, _ = self._run_git(["rev-parse", "--show-toplevel"], repo_path)
         return root_out if root_out else repo_path, None
 
-    def git_stage_all(self, project_id):
+    def git_stage_all(self, project_id, repo_path):
         """Stage all changes (git add -A)."""
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         _, stderr, rc = self._run_git(["add", "-A"], git_root)
@@ -838,9 +883,9 @@ class Api:
             return {"success": True, "message": "All changes staged"}
         return {"success": False, "message": stderr or "git add -A failed"}
 
-    def git_stage_file(self, project_id, filepath):
+    def git_stage_file(self, project_id, repo_path, filepath):
         """Stage a single file (git add <file>)."""
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         _, stderr, rc = self._run_git(["add", filepath], git_root)
@@ -849,9 +894,9 @@ class Api:
             return {"success": True, "message": f"Staged: {filepath}"}
         return {"success": False, "message": stderr or "git add failed"}
 
-    def git_unstage_file(self, project_id, filepath):
+    def git_unstage_file(self, project_id, repo_path, filepath):
         """Unstage a single file (git restore --staged <file>)."""
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         _, stderr, rc = self._run_git(["restore", "--staged", filepath], git_root)
@@ -860,9 +905,9 @@ class Api:
             return {"success": True, "message": f"Unstaged: {filepath}"}
         return {"success": False, "message": stderr or "git restore --staged failed"}
 
-    def git_unstage_all(self, project_id):
+    def git_unstage_all(self, project_id, repo_path):
         """Unstage all staged changes (git restore --staged .)."""
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         _, stderr, rc = self._run_git(["restore", "--staged", "."], git_root)
@@ -871,11 +916,11 @@ class Api:
             return {"success": True, "message": "All changes unstaged"}
         return {"success": False, "message": stderr or "git restore --staged failed"}
 
-    def git_commit(self, project_id, message):
+    def git_commit(self, project_id, repo_path, message):
         """Commit staged changes with the given message."""
         if not message or not message.strip():
             return {"success": False, "message": "Commit message cannot be empty"}
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         stdout, stderr, rc = self._run_git(["commit", "-m", message.strip()], git_root)
@@ -889,9 +934,9 @@ class Api:
             
         return {"success": False, "message": err_msg}
 
-    def git_push(self, project_id, remote="origin", branch=""):
+    def git_push(self, project_id, repo_path, remote="origin", branch=""):
         """Push commits to remote. Defaults to origin and the current branch."""
-        git_root, err = self._get_git_root(project_id)
+        git_root, err = self._validate_git_root(project_id, repo_path)
         if err:
             return err
         # If no branch given, use current branch

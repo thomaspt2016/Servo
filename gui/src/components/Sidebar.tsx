@@ -1,5 +1,5 @@
 import React from "react";
-import { Layers, Plus, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle } from "lucide-react";
+import { Layers, Plus, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Project, GitInfo } from "../types";
@@ -19,6 +19,7 @@ export interface SidebarProps {
   handleNewClick: () => void;
   handleEditClick: (project: Project, e: React.MouseEvent) => void;
   handleDeleteClick: (id: string, e: React.MouseEvent) => void;
+  isDockerRunning: boolean;
 }
 
 export default function Sidebar({
@@ -36,6 +37,7 @@ export default function Sidebar({
   handleNewClick,
   handleEditClick,
   handleDeleteClick,
+  isDockerRunning,
 }: SidebarProps) {
   return (
     <aside className="w-80 border-r border-zinc-900 bg-zinc-950/70 p-5 flex flex-col justify-between glass z-10">
@@ -63,19 +65,25 @@ export default function Sidebar({
             Category filter
           </span>
           <div className="flex flex-wrap gap-1.5">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-2.5 py-1 text-[11px] rounded-md transition-all border ${
-                  selectedCategory === cat
-                    ? "bg-primary/20 text-primary border-primary/40 font-medium"
-                    : "bg-zinc-950/40 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:bg-zinc-900/40"
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+            {categories.map((cat) => {
+              const isDockerRelated = cat.toLowerCase().includes("docker");
+              const showWarning = isDockerRelated && !isDockerRunning;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`flex items-center px-2.5 py-1 text-[11px] rounded-md transition-all border ${
+                    selectedCategory === cat
+                      ? "bg-primary/20 text-primary border-primary/40 font-medium"
+                      : "bg-zinc-950/40 text-zinc-500 border-zinc-900 hover:text-zinc-300 hover:bg-zinc-900/40"
+                  }`}
+                  title={showWarning ? "Docker is not running" : ""}
+                >
+                  <span>{cat}</span>
+                  {showWarning && <AlertTriangle className="h-3 w-3 ml-1.5 text-red-500/80" />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -138,9 +146,16 @@ export default function Sidebar({
                 >
                   <div className="flex items-start justify-between w-full">
                     <div className="flex flex-col flex-1 truncate pr-2">
-                      <span className="text-xs font-bold truncate text-zinc-200">
-                        {project.name}
-                      </span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-xs font-bold truncate text-zinc-200">
+                          {project.name}
+                        </span>
+                        {services.some(s => s.language?.toLowerCase().includes("docker") || s.command.toLowerCase().includes("docker")) && !isDockerRunning && (
+                          <span title="Docker is not running">
+                            <AlertTriangle className="h-3 w-3 flex-shrink-0 text-red-500/80" />
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-zinc-500 truncate mt-0.5">
                         {project.category || "Uncategorized"}
                       </span>

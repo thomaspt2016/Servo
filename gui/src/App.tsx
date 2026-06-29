@@ -130,8 +130,12 @@ function App() {
       const results = await Promise.all(
         list.map(async (p) => {
           try {
-            const info = await getApi().git_get_info(p.id);
-            return { id: p.id, info };
+            const reposRes = await getApi().git_get_repos(p.id);
+            if (reposRes.repos && reposRes.repos.length > 0) {
+              const info = await getApi().git_get_info(p.id, reposRes.repos[0].path);
+              return { id: p.id, info };
+            }
+            return { id: p.id, info: null };
           } catch {
             return { id: p.id, info: null };
           }
@@ -950,6 +954,7 @@ function App() {
           handleNewClick={handleNewClick}
           handleEditClick={handleEditClick}
           handleDeleteClick={handleDeleteClick}
+          isDockerRunning={isDockerRunning}
         />
       </Suspense>
 
