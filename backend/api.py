@@ -250,6 +250,24 @@ class Api:
             logger.info(f"Deleted project config for ID: {project_id}")
             return True
         return False
+
+    def read_env_file(self, file_path):
+        """Reads .env file and returns a dictionary of parsed values."""
+        try:
+            from dotenv import dotenv_values
+        except ImportError:
+            logger.warning("python-dotenv not installed, cannot parse .env file natively.")
+            return {}
+            
+        try:
+            if not os.path.exists(file_path):
+                return {}
+                
+            parsed = dotenv_values(file_path)
+            return {k: str(v) for k, v in parsed.items() if v is not None}
+        except Exception as e:
+            logger.error(f"Failed to read .env file at {file_path}: {e}")
+            return {}
         
     def import_project(self):
         folder = self.pick_folder()
@@ -619,6 +637,9 @@ class Api:
             logger.info("PiP window already open.")
             return True
 
+        if not hasattr(self, 'is_main_focused'):
+            self.is_main_focused = True
+
         logger.info("Opening PiP overlay window...")
         try:
             # Build the URL — use #pip hash (query params break on file:// URLs)
@@ -702,6 +723,10 @@ class Api:
             return True
         return False
 
+    def report_focus(self, is_focused):
+        """Called by frontend to report whether the main window's webview has focus."""
+        self.is_main_focused = is_focused
+
     def show_toast_window(self, title, message):
         """Spawns a highly reliable native Windows notification."""
         try:
@@ -740,10 +765,12 @@ class Api:
                 pip_hwnd  = pip_win.native.Handle.ToInt32()
                 fg        = user32.GetForegroundWindow()
 
-                main_is_active   = (fg == main_hwnd)
                 pip_is_active    = (fg == pip_hwnd)
                 main_is_minimized = bool(user32.IsIconic(main_hwnd))
                 pip_is_visible   = bool(user32.IsWindowVisible(pip_hwnd))
+
+                # Use frontend-reported focus or HWND match for reliability with WebView2
+                main_is_active = getattr(self, 'is_main_focused', True) or (fg == main_hwnd)
 
                 statuses = self.get_statuses()
                 any_running = "Running" in statuses.values()
@@ -762,8 +789,10 @@ class Api:
                     # Main is minimized OR user switched to another app AND services are running — show PiP
                     if not pip_is_visible and not self._pip_paused:
                         try:
-                            # Use native show() to ensure WebView2 initializes properly
                             pip_win.show()
+                            if hasattr(pip_win, 'native') and pip_win.native:
+                                pip_win.native.TopMost = True
+                                
                             # Restore focus to whatever app the user was using
                             import ctypes
                             if fg and fg != pip_win.native.Handle.ToInt32():

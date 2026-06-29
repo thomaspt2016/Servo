@@ -13,6 +13,7 @@ class ProcessManager:
         self.lock = threading.RLock()
         self.processes = {}
         self.active_ports = {}
+        self.allocated_ports = {}
         self.logs = {}
         self.intentionally_stopped = set()
         self.installing_deps = set()
@@ -26,6 +27,30 @@ class ProcessManager:
         self.metrics = {}
         self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
         self._metrics_thread.start()
+
+    def _get_free_port(self):
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            return s.getsockname()[1]
+
+    def _ensure_project_ports_allocated(self, project_id):
+        projects = self.get_projects()
+        project = next((p for p in projects if p.get('id') == project_id), None)
+        if not project:
+            return
+            
+        for s in project.get('services', []):
+            s_id = s.get('id')
+            key = f"{project_id}_{s_id}"
+            if key not in self.allocated_ports:
+                self.allocated_ports[key] = self._get_free_port()
+                
+            for env_var in s.get('env_vars', []):
+                if env_var.get('is_dynamic_port'):
+                    env_key = f"{key}_env_{env_var.get('key')}"
+                    if env_key not in self.allocated_ports:
+                        self.allocated_ports[env_key] = self._get_free_port()
 
     def _trigger_crash_notification(self, key):
         logger.info(f"Triggering crash notification for key: {key}")
@@ -189,7 +214,7 @@ class ProcessManager:
                                 else:
                                     logger.info(f"Docker Compose path '{expanded_path}' MATCHED {len(new_docker_containers[key])} containers.")
                             else:
-                                target_port = s.get('target_port')
+                                target_port = self.allocated_ports.get(key)
                                 if target_port:
                                     try:
                                         tp = str(target_port)
@@ -473,15 +498,43 @@ class ProcessManager:
                 logger.warning(f"Start failed: service ID {service_id} does not exist in project {project_id}.")
                 return False
                 
-            path = service.get('path')
+            path = service.get('path', '')
+            command = override_command if override_command else service.get('command', '')
+            use_venv = service.get('use_venv', False)
+            venv_path = service.get('venv_path', '')
+            
+            # Pre-process command string replacement
+            self._ensure_project_ports_allocated(project_id)
+            proj = next((p for p in projects if p.get('id') == project_id), None)
+            if proj:
+                for s_iter in proj.get('services', []):
+                    iter_key = f"{project_id}_{s_iter.get('id')}"
+                    for env_var in s_iter.get('env_vars', []):
+                        k = env_var.get('key')
+                        if not k: continue
+                        val = None
+                        if env_var.get('is_dynamic_port'):
+                            env_key = f"{iter_key}_env_{k}"
+                            val = self.allocated_ports.get(env_key)
+                        else:
+                            val = env_var.get('override_value') or env_var.get('value', '')
+                        if val is not None:
+                            command = command.replace(f"{{{k}}}", str(val))
+            
+            # Also pre-process {PORT} for self
+            actual_port = self.allocated_ports.get(key)
+            if actual_port:
+                command = command.replace("{PORT}", str(actual_port))
+
+            if not command.strip():
+                logger.info(f"Start ignored: service {key} has no command.")
+                return False
+
             if path and not os.path.isabs(path):
                 proj_path = project.get('path', '')
                 path = os.path.normpath(os.path.join(proj_path, path))
                 
-            command = override_command if override_command else service.get('command')
             name = f"{project.get('name')} - {service.get('name')}"
-            venv_path = service.get('venv_path')
-            use_venv = service.get('use_venv', True)
             
             if not path or not command:
                 logger.warning(f"Start failed for service {key}: Missing path or command parameters.")
@@ -530,26 +583,37 @@ class ProcessManager:
                 # Setup custom environment variables for virtual environments
                 process_env = os.environ.copy()
                 
-                # Dynamic Port Allocation
-                target_port = service.get('target_port')
-                actual_port = None
-                if target_port:
-                    try:
-                        target_port = int(target_port)
-                        actual_port = target_port
-                        import socket
-                        # We no longer auto-increment the port. Strict port binding is required for inter-service comms.
-                        
-                        logger.info(f"Target port configured as {target_port} for service '{name}'")
-                        process_env['PORT'] = str(actual_port)
-                        # Replace {PORT} in the command if specified
-                        command = command.replace("{PORT}", str(actual_port))
-                        
-                        # Store the actual port in the active_ports dictionary
-                        self.active_ports[key] = actual_port
-                        
-                    except ValueError:
-                        logger.warning(f"Invalid target_port '{target_port}' for service '{name}', ignoring.")
+                # Dynamic Port Allocation & Env Pushing
+                self._ensure_project_ports_allocated(project_id)
+                
+                # Push all allocated ports and static env vars for this project into env
+                proj = next((p for p in projects if p.get('id') == project_id), None)
+                if proj:
+                    for s_iter in proj.get('services', []):
+                        iter_key = f"{project_id}_{s_iter.get('id')}"
+                        for env_var in s_iter.get('env_vars', []):
+                            k = env_var.get('key')
+                            if not k:
+                                continue
+                            if env_var.get('is_dynamic_port'):
+                                env_key = f"{iter_key}_env_{k}"
+                                allocated = self.allocated_ports.get(env_key)
+                                if allocated:
+                                    process_env[k] = str(allocated)
+                            else:
+                                override = env_var.get('override_value')
+                                if override:
+                                    process_env[k] = str(override)
+                                else:
+                                    process_env[k] = str(env_var.get('value', ''))
+                # Self port setup
+                actual_port = self.allocated_ports.get(key)
+                if actual_port:
+                    process_env['PORT'] = str(actual_port)
+                    command = command.replace("{PORT}", str(actual_port))
+                    self.active_ports[key] = actual_port
+                    logger.info(f"Dynamically assigned port {actual_port} for service '{name}'")
+
 
                 if venv_path and use_venv:
                     expanded_venv = os.path.expanduser(venv_path)
@@ -572,7 +636,7 @@ class ProcessManager:
                         pty = winpty.PTY(80, 24)
                         
                         # Set up environment variables as a dictionary
-                        pty_env = '\0'.join([f"{k}={v}" for k, v in process_env.items()]) + '\0'
+                        pty_env = '\0'.join([f"{k}={v}" for k, v in process_env.items()]) + '\0\0'
                         
                         # Spawn the process in the PTY without any arguments
                         pty.spawn('powershell.exe', cwd=expanded_path, env=pty_env)

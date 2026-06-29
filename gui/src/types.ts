@@ -1,3 +1,10 @@
+export interface EnvVar {
+  key: string;
+  value: string;
+  override_value?: string;
+  is_dynamic_port: boolean;
+}
+
 export interface Service {
   id: string;
   name: string;
@@ -7,7 +14,8 @@ export interface Service {
   use_venv?: boolean;
   language?: string;
   description?: string;
-  target_port?: string | number;
+  env_vars?: EnvVar[];
+  mode?: "npm" | "custom" | "file";
 }
 
 export interface GitChange {
@@ -63,7 +71,7 @@ export interface FormService {
   use_venv: boolean;
   language?: string;
   mode?: "file" | "npm" | "custom";
-  target_port?: string | number;
+  env_vars?: EnvVar[];
 }
 
 export interface FormState {
@@ -71,6 +79,7 @@ export interface FormState {
   name: string;
   description: string;
   category: string;
+  path?: string;
   services: FormService[];
 }
 
@@ -82,6 +91,7 @@ declare global {
         save_project(project: Project): Promise<boolean>;
         delete_project(id: string): Promise<boolean>;
         import_project(): Promise<boolean>;
+        read_env_file(filePath: string): Promise<Record<string, string>>;
         start_service(projectId: string, serviceId: string): Promise<boolean>;
         install_dependencies(projectId: string, serviceId: string): Promise<boolean>;
         start_raw_terminal(terminalId: string, cwd?: string | null): Promise<boolean>;

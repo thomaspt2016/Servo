@@ -93,6 +93,33 @@ export default function ProjectConfigDialog({
   handleBrowseCommandFile,
   handleAddServiceForm,
 }: ProjectConfigDialogProps) {
+  const handleLoadEnvFile = async (index: number) => {
+    // Default to the project path or first service path or empty
+    const defaultDir = formState.path || formState.services[0]?.path || null;
+    
+    if (window.pywebview?.api) {
+      try {
+        const filePath = await window.pywebview.api.pick_file(defaultDir);
+        if (!filePath) return; // User cancelled
+        
+        const envs = await window.pywebview.api.read_env_file(filePath);
+        const updated = [...formState.services];
+        const existingVars = updated[index].env_vars || [];
+        const existingKeys = new Set(existingVars.map(v => v.key));
+        
+        for (const [k, v] of Object.entries(envs)) {
+          if (!existingKeys.has(k)) {
+            existingVars.push({ key: k, value: v as string, is_dynamic_port: false });
+          }
+        }
+        updated[index].env_vars = existingVars;
+        setFormState({ ...formState, services: updated });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
   if (!isDialogOpen) return null;
 
   return (
@@ -267,34 +294,6 @@ export default function ProjectConfigDialog({
                           const updated = [...formState.services];
                           updated[index].description = e.target.value;
                           setFormState({ ...formState, services: updated });
-                        }}
-                      />
-                    </div>
-                    {/* Target Port */}
-                    <div className="space-y-1.5 col-span-2 md:col-span-1">
-                      <label className="text-[11px] font-semibold text-zinc-400">
-                        Target Port (Optional)
-                      </label>
-                      <Input
-                        type="text"
-                        placeholder="e.g. 5173"
-                        value={service.target_port || ""}
-                        onChange={(e) => {
-                          const updated = [...formState.services];
-                          // Only allow digits
-                          updated[index].target_port = e.target.value.replace(/[^0-9]/g, '');
-                          setFormState({ ...formState, services: updated });
-                        }}
-                        onBlur={(e) => {
-                          const val = e.target.value;
-                          if (val !== "") {
-                            const num = parseInt(val, 10);
-                            if (num < 5000) {
-                              const updated = [...formState.services];
-                              updated[index].target_port = "5000";
-                              setFormState({ ...formState, services: updated });
-                            }
-                          }
                         }}
                       />
                     </div>
@@ -605,6 +604,107 @@ export default function ProjectConfigDialog({
                       )}
                     </div>
                   )}
+                  
+                  {/* Environment Variables - Shared across all layouts */}
+                  <div className="pt-4 mt-4 border-t border-zinc-900/60 space-y-3 px-5 pb-5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-semibold text-zinc-400">
+                        Runtime Environment Overrides
+                      </label>
+                      <div className="flex space-x-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => handleLoadEnvFile(index)}
+                          className="h-6 text-[10px] px-2 text-primary hover:text-primary/80 hover:bg-transparent"
+                        >
+                          Load .env File
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => {
+                            const updated = [...formState.services];
+                            updated[index].env_vars = [...(updated[index].env_vars || []), { key: "", value: "", is_dynamic_port: false }];
+                            setFormState({ ...formState, services: updated });
+                          }}
+                          className="h-6 text-[10px] px-2 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          + Add Var
+                        </Button>
+                      </div>
+                    </div>
+
+                    {(service.env_vars || []).length > 0 && (
+                      <div className="space-y-2">
+                        {service.env_vars!.map((envVar, envIndex) => (
+                          <div key={envIndex} className="flex flex-col md:flex-row md:items-center gap-2 border border-zinc-900/40 p-2 rounded-lg bg-zinc-950/20">
+                            <div className="flex-1 flex gap-2">
+                              <Input
+                                placeholder="Key (e.g. PORT)"
+                                value={envVar.key}
+                                onChange={(e) => {
+                                  const updated = [...formState.services];
+                                  updated[index].env_vars![envIndex].key = e.target.value;
+                                  setFormState({ ...formState, services: updated });
+                                }}
+                                className="w-1/3 h-8 text-[11px] bg-zinc-950"
+                              />
+                              <Input
+                                placeholder="Default Value"
+                                value={envVar.value}
+                                disabled={true}
+                                className="w-1/3 h-8 text-[11px] text-zinc-500 bg-zinc-900/50"
+                                title="Original value from .env file"
+                              />
+                              <Input
+                                placeholder="Runtime Override Value"
+                                value={envVar.is_dynamic_port ? "<Auto-Assigned Port>" : (envVar.override_value || "")}
+                                disabled={envVar.is_dynamic_port}
+                                onChange={(e) => {
+                                  const updated = [...formState.services];
+                                  updated[index].env_vars![envIndex].override_value = e.target.value;
+                                  setFormState({ ...formState, services: updated });
+                                }}
+                                className="flex-1 h-8 text-[11px] bg-zinc-950 border-primary/30"
+                                title="Value to inject at runtime"
+                              />
+                            </div>
+                            <div className="flex items-center space-x-2 pl-1">
+                              <div className="flex items-center space-x-1 whitespace-nowrap">
+                                <input
+                                  type="checkbox"
+                                  id={`dyn_${index}_${envIndex}`}
+                                  checked={envVar.is_dynamic_port}
+                                  onChange={(e) => {
+                                    const updated = [...formState.services];
+                                    updated[index].env_vars![envIndex].is_dynamic_port = e.target.checked;
+                                    setFormState({ ...formState, services: updated });
+                                  }}
+                                  className="rounded bg-zinc-950 border-zinc-800 text-primary h-3.5 w-3.5 focus:ring-0"
+                                />
+                                <label htmlFor={`dyn_${index}_${envIndex}`} className="text-[10px] text-zinc-400 cursor-pointer">
+                                  Dyn. Port
+                                </label>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => {
+                                  const updated = [...formState.services];
+                                  updated[index].env_vars!.splice(envIndex, 1);
+                                  setFormState({ ...formState, services: updated });
+                                }}
+                                className="h-8 w-8 p-0 text-zinc-500 hover:text-red-400 flex-shrink-0"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
 

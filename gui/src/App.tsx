@@ -227,6 +227,13 @@ function App() {
   useEffect(() => {
     if (!isDesktop) return;
 
+    if (window.pywebview && window.pywebview.api && (window.pywebview.api as any).report_focus) {
+      const handleFocus = () => (window.pywebview!.api as any).report_focus(true).catch(() => {});
+      const handleBlur = () => (window.pywebview!.api as any).report_focus(false).catch(() => {});
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('blur', handleBlur);
+    }
+
     fetchProjects();
     fetchStatuses();
     fetchMetrics();
@@ -470,8 +477,9 @@ function App() {
         command: s.command.trim(),
         venv_path: s.venv_path.trim() || undefined,
         use_venv: s.use_venv,
+        env_vars: s.env_vars,
         language: s.language || "Python",
-        target_port: s.target_port
+        mode: s.mode
       }))
     };
 
@@ -506,8 +514,64 @@ function App() {
       name: project.name,
       description: project.description || "",
       category: project.category,
+      path: project.path,
       services: project.services.map(s => {
-        let mode: "file" | "npm" | "custom" = "custom";
+        let mode = s.mode;
+        if (!mode) {
+          mode = "custom";
+          if (s.language === "Node.js") {
+            if (s.command.startsWith("npm run ") || s.command === "npm start" || !s.command.trim()) {
+              mode = "npm";
+            }
+          } else {
+            if (!s.command.trim()) {
+              mode = "file";
+            } else {
+              const lowerCmd = s.command.trim().toLowerCase();
+              const startsWithRunner = 
+                lowerCmd.startsWith("python ") || 
+                lowerCmd.startsWith("node ") || 
+                lowerCmd.startsWith("ts-node ") || 
+                lowerCmd.startsWith("./") ||
+                lowerCmd.startsWith("bash ") ||
+                lowerCmd.startsWith("go run ");
+              const endsWithExt = /\.[a-z0-9]+["']?$/i.test(lowerCmd);
+              if (startsWithRunner || endsWithExt) {
+                mode = "file";
+              }
+            }
+          }
+        }
+
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description || "",
+          path: s.path,
+          command: s.command,
+          venv_path: s.venv_path || "",
+          use_venv: s.use_venv !== false,
+          env_vars: s.env_vars || [],
+          language: s.language || "Python",
+          mode
+        };
+      })
+    });
+    setIsEditMode(true);
+    setDialogError("");
+    setIsDialogOpen(true);
+  };
+
+  // Duplicate Project Click
+  const handleDuplicateClick = (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    setNpmScripts({});
+    
+    const newServices = project.services.map((s, index) => {
+      let mode = s.mode;
+      if (!mode) {
+        mode = "custom";
         if (s.language === "Node.js") {
           if (s.command.startsWith("npm run ") || s.command === "npm start" || !s.command.trim()) {
             mode = "npm";
@@ -530,55 +594,6 @@ function App() {
             }
           }
         }
-
-        return {
-          id: s.id,
-          name: s.name,
-          description: s.description || "",
-          path: s.path,
-          command: s.command,
-          venv_path: s.venv_path || "",
-          use_venv: s.use_venv !== false,
-          language: s.language || "Python",
-          target_port: s.target_port,
-          mode
-        };
-      })
-    });
-    setIsEditMode(true);
-    setDialogError("");
-    setIsDialogOpen(true);
-  };
-
-  // Duplicate Project Click
-  const handleDuplicateClick = (project: Project, e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    setNpmScripts({});
-    
-    const newServices = project.services.map((s, index) => {
-      let mode: "file" | "npm" | "custom" = "custom";
-      if (s.language === "Node.js") {
-        if (s.command.startsWith("npm run ") || s.command === "npm start" || !s.command.trim()) {
-          mode = "npm";
-        }
-      } else {
-        if (!s.command.trim()) {
-          mode = "file";
-        } else {
-          const lowerCmd = s.command.trim().toLowerCase();
-          const startsWithRunner = 
-            lowerCmd.startsWith("python ") || 
-            lowerCmd.startsWith("node ") || 
-            lowerCmd.startsWith("ts-node ") || 
-            lowerCmd.startsWith("./") ||
-            lowerCmd.startsWith("bash ") ||
-            lowerCmd.startsWith("go run ");
-          const endsWithExt = /\.[a-z0-9]+["']?$/i.test(lowerCmd);
-          if (startsWithRunner || endsWithExt) {
-            mode = "file";
-          }
-        }
       }
 
       const newId = `srv-${Date.now()}-${index}`;
@@ -594,8 +609,8 @@ function App() {
         command: s.command,
         venv_path: s.venv_path || "",
         use_venv: s.use_venv !== false,
+        env_vars: s.env_vars || [],
         language: s.language || "Python",
-        target_port: s.target_port,
         mode
       };
     });
@@ -605,6 +620,7 @@ function App() {
       name: `${project.name} (Copy)`,
       description: project.description || "",
       category: project.category,
+      path: project.path,
       services: newServices
     });
     setIsEditMode(false); // Duplicate is creating a new project based on an old one

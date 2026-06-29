@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, Ban, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -432,71 +432,7 @@ export default function ProjectWorkspace({
                   <Package className="h-3 w-3" />
                 </Button>
                 
-                {serviceStatus !== "Running" && service.target_port && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (window.pywebview && window.pywebview.api) {
-                        try {
-                           const check = await window.pywebview.api.check_port_conflict(service.target_port!);
-                           if (!check.success) {
-                             setAlertConfig({ open: true, title: "Check Failed", message: `Failed to check port: ${check.message}` });
-                             return;
-                           }
-                           
-                           if (!check.conflict) {
-                             setAlertConfig({ open: true, title: "Port Free", message: `Port ${service.target_port} is currently free. No conflict found.` });
-                             return;
-                           }
 
-                           const processList = check.processes ? check.processes.map(p => `${p.name} (PID: ${p.pid})`).join(', ') : 'Unknown process';
-                           
-                           setConfirmConfig({
-                             open: true,
-                             title: "Port Conflict Detected",
-                             message: (
-                               <div className="space-y-2">
-                                 <p>Port {service.target_port} is currently in use by:</p>
-                                 <pre className="p-2 bg-zinc-900 rounded text-xs overflow-auto">{processList}</pre>
-                                 <p className="text-destructive font-semibold">Are you sure you want to forcibly kill these processes?</p>
-                               </div>
-                             ),
-                             onConfirm: async () => {
-                               try {
-                                 const res = await window.pywebview!.api!.resolve_port_conflict(service.target_port!);
-                                 if (res.success) {
-                                   const killedStr = res.killed && res.killed.length > 0 ? res.killed.map((k: any) => `- ${k.name} (PID: ${k.pid})`).join('\n') : "";
-                                   setAlertConfig({
-                                     open: true,
-                                     title: "Success",
-                                     message: (
-                                       <div className="space-y-2">
-                                         <p>{res.message}</p>
-                                         {killedStr && <pre className="p-2 bg-zinc-900 rounded text-xs">{killedStr}</pre>}
-                                       </div>
-                                     )
-                                   });
-                                 } else {
-                                   setAlertConfig({ open: true, title: "Failed", message: `Failed: ${res.message}` });
-                                 }
-                               } catch (err: any) {
-                                 setAlertConfig({ open: true, title: "Error", message: `Error: ${err}` });
-                               }
-                             }
-                           });
-                        } catch (err: any) {
-                           setAlertConfig({ open: true, title: "Error", message: `Error: ${err}` });
-                        }
-                      }
-                    }}
-                    className="h-7 w-7 text-amber-500/80 hover:text-amber-400 hover:bg-amber-900/30"
-                    title={`Resolve port conflict (Kill process on port ${service.target_port})`}
-                  >
-                    <Ban className="h-3 w-3" />
-                  </Button>
-                )}
                 
                 <Button
                   variant="ghost"
