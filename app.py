@@ -116,9 +116,10 @@ if __name__ == '__main__':
                 logger.info("Global overlay shortcut unregistered.")
                 
         threading.Thread(target=hotkey_loop, daemon=True).start()
-
     try:
-        webview.start(gui='edgechromium', debug=DEBUG)
+        # Force Edge Chromium on Windows, otherwise use system default (Cocoa on Mac, GTK on Linux)
+        gui_type = 'edgechromium' if os.name == 'nt' else None
+        webview.start(gui=gui_type, debug=DEBUG)
     except Exception as e:
         logger.error(f"webview.start encountered an error: {e}", exc_info=True)
         sys.exit(1)
