@@ -3,6 +3,9 @@ import json
 import threading
 import subprocess
 import webview
+import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 from backend.logger import logger
 from backend.process_manager import ProcessManager
@@ -12,14 +15,37 @@ DEBUG = False
 
 class Api:
     def __init__(self):
-        self.storage_lock = threading.Lock()
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.storage_path = os.path.join(self.base_dir, 'storage.json')
+        self.storage_lock = threading.RLock()
         self.__window = None
+        
+        # Initialize Watchdog Observer
+        self._observer = Observer()
+        self._observer.start()
+        self._watch_paths = {} # Maps project_path -> watchdog watch object
+        
+        class ConfigHandler(FileSystemEventHandler):
+            def __init__(self, api_instance):
+                self.api = api_instance
+                self.last_trigger = 0
+            
+            def on_modified(self, event):
+                if not event.is_directory and event.src_path.endswith('.servo.json'):
+                    now = time.time()
+                    if now - self.last_trigger > 1.0: # Debounce 1 second
+                        self.last_trigger = now
+                        logger.info(f"Detected external change in {event.src_path}")
+                        if self.api._Api__window:
+                            self.api._Api__window.evaluate_js("window.dispatchEvent(new CustomEvent('servo-config-changed'));")
+
+        self._config_handler = ConfigHandler(self)
+        
         self._pip_window = None
         self._pip_paused = False
         
-        self._process_manager = ProcessManager(self._load_from_json, self)
+        # Pass self.load_projects to ProcessManager so it can resolve services
+        self._process_manager = ProcessManager(self.load_projects, api=self)
         logger.info("Initialized Python IPC Api handler.")
         
     @property
@@ -38,32 +64,6 @@ class Api:
         try:
             with open(self.storage_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                
-            # Perform schema migration for older single-server projects to multi-service schema
-            migrated = False
-            for p in data:
-                if 'services' not in p:
-                    service_id = f"srv-{p.get('id', 'default')}"
-                    p['services'] = [{
-                        'id': service_id,
-                        'name': 'Main Server',
-                        'path': p.get('path', ''),
-                        'command': p.get('command', ''),
-                        'venv_path': p.get('venv_path', ''),
-                        'use_venv': p.get('use_venv', True)
-                    }]
-                    # Remove deprecated fields
-                    p.pop('path', None)
-                    p.pop('command', None)
-                    p.pop('venv_path', None)
-                    p.pop('use_venv', None)
-                    migrated = True
-                    
-            if migrated:
-                logger.info("Migrated older project configurations to multi-service schema.")
-                self._write_to_json(data)
-                
-            logger.debug(f"Successfully loaded {len(data)} projects from {self.storage_path}")
             return data
         except Exception as e:
             logger.error(f"Failed to read project database JSON: {e}", exc_info=True)
@@ -98,7 +98,69 @@ class Api:
             return False
 
     def load_projects(self):
-        return self._load_from_json()
+        index = self._load_from_json()
+        full_projects = []
+        for p in index:
+            proj = dict(p)
+            proj_path = p.get('path', '')
+            proj['path'] = proj_path
+            
+            if not os.path.exists(proj_path):
+                proj['health_status'] = 'missing'
+                proj['services'] = []
+                full_projects.append(proj)
+                continue
+                
+            servo_file = os.path.join(proj_path, '.servo.json')
+            if not os.path.exists(servo_file):
+                proj['health_status'] = 'uninitialized'
+                proj['services'] = []
+                full_projects.append(proj)
+                continue
+                
+            try:
+                with open(servo_file, 'r', encoding='utf-8') as f:
+                    servo_data = json.load(f)
+                
+                services = servo_data.get('services', [])
+                for s in services:
+                    s['raw_path'] = s.get('path', '.')
+                    s['raw_venv_path'] = s.get('venv_path', '')
+                    
+                    s['path'] = os.path.abspath(os.path.join(proj_path, s['raw_path'])).replace('\\', '/')
+                    if s['raw_venv_path']:
+                        s['venv_path'] = os.path.abspath(os.path.join(proj_path, s['raw_venv_path'])).replace('\\', '/')
+                        
+                proj['services'] = services
+                proj['health_status'] = 'active'
+                full_projects.append(proj)
+            except Exception as e:
+                logger.error(f"Error parsing {servo_file}: {e}")
+                proj['health_status'] = 'corrupted'
+                proj['services'] = []
+                full_projects.append(proj)
+                
+        # Setup watchers for any active projects
+        self._setup_watchers(full_projects)
+        return full_projects
+        
+    def _setup_watchers(self, full_projects):
+        current_paths = set(p.get('path', '') for p in full_projects if p.get('health_status') == 'active')
+        
+        # Remove old watches
+        for path in list(self._watch_paths.keys()):
+            if path not in current_paths:
+                try:
+                    self._observer.unschedule(self._watch_paths[path])
+                except Exception as e:
+                    logger.debug(f"Error unscheduling watch for {path}: {e}")
+                del self._watch_paths[path]
+                
+        # Add new watches
+        for path in current_paths:
+            if path and path not in self._watch_paths and os.path.exists(path):
+                watch = self._observer.schedule(self._config_handler, path, recursive=False)
+                self._watch_paths[path] = watch
 
     def save_project(self, project_json):
         if isinstance(project_json, str):
@@ -110,30 +172,135 @@ class Api:
         project_name = project.get('name')
         
         with self.storage_lock:
+            # 1. Update Global Index
             projects = self._load_from_json()
             exists = False
             for i, p in enumerate(projects):
                 if p.get('id') == project_id:
-                    projects[i] = project
+                    # Update name/category/path if they changed
+                    p['name'] = project_name
+                    if 'category' in project: p['category'] = project.get('category')
+                    if 'path' in project: p['path'] = project.get('path')
                     exists = True
                     break
             if not exists:
-                projects.append(project)
+                projects.append({
+                    'id': project_id,
+                    'name': project_name,
+                    'category': project.get('category', ''),
+                    'path': project.get('path', '')
+                })
             self._write_to_json(projects)
-            logger.info(f"Saved project: '{project_name}' (ID: {project_id}, Category: {project.get('category')})")
+            
+            # 2. Write to .servo.json
+            proj_path = project.get('path', '')
+            if os.path.exists(proj_path):
+                servo_file = os.path.join(proj_path, '.servo.json')
+                
+                # Convert back to relative paths for storage
+                services_to_save = []
+                for s in project.get('services', []):
+                    new_s = dict(s)
+                    new_s.pop('raw_path', None)
+                    new_s.pop('raw_venv_path', None)
+                    
+                    abs_path = s.get('path', '')
+                    if abs_path:
+                        try:
+                            rel_p = os.path.relpath(abs_path, proj_path).replace('\\', '/')
+                            new_s['path'] = rel_p if rel_p != '.' else '.'
+                        except ValueError:
+                            pass
+                            
+                    abs_venv = s.get('venv_path', '')
+                    if abs_venv:
+                        try:
+                            new_s['venv_path'] = os.path.relpath(abs_venv, proj_path).replace('\\', '/')
+                        except ValueError:
+                            pass
+                            
+                    services_to_save.append(new_s)
+                    
+                servo_data = {
+                    "_warning": "AUTO-GENERATED BY SERVO. DO NOT EDIT. Manual changes may corrupt your project configuration.",
+                    "version": "1.0",
+                    "project_id": project_id,
+                    "services": services_to_save
+                }
+                
+                tmp_file = servo_file + '.tmp'
+                try:
+                    with open(tmp_file, 'w', encoding='utf-8') as f:
+                        json.dump(servo_data, f, indent=2)
+                    os.replace(tmp_file, servo_file)
+                except Exception as e:
+                    logger.error(f"Failed to save .servo.json: {e}")
+            
+            logger.info(f"Saved project: '{project_name}' (ID: {project_id})")
             return True
 
     def delete_project(self, project_id):
         logger.info(f"Request to delete project ID: {project_id}")
         self.stop_project(project_id)
-        with self.storage_lock:
-            projects = self._load_from_json()
-            projects = [p for p in projects if p.get('id') != project_id]
-            self._write_to_json(projects)
+        index = self._load_from_json()
+        new_index = [p for p in index if p.get('id') != project_id]
+        if len(new_index) < len(index):
+            self._write_to_json(new_index)
+            self._process_manager.cleanup_logs_for_project(project_id)
+            logger.info(f"Deleted project config for ID: {project_id}")
+            return True
+        return False
+        
+    def import_project(self):
+        folder = self.pick_folder()
+        if not folder:
+            return False
             
-        self._process_manager.cleanup_logs_for_project(project_id)
-        logger.info(f"Deleted project config for ID: {project_id}")
-        return True
+        servo_file = os.path.join(folder, '.servo.json')
+        if not os.path.exists(servo_file):
+            self.show_toast_window("Import Failed", "No .servo.json found in the selected directory.")
+            return False
+            
+        try:
+            with open(servo_file, 'r', encoding='utf-8') as f:
+                proj_data = json.load(f)
+                
+            index = self._load_from_json()
+            # Check if it already exists
+            proj_id = proj_data.get('project_id')
+            if any(p.get('id') == proj_id or os.path.normcase(os.path.abspath(p.get('path', ''))) == os.path.normcase(os.path.abspath(folder)) for p in index):
+                self.show_toast_window("Import Failed", "This project is already connected.")
+                return False
+                
+            new_id = proj_id if proj_id else f"proj-{int(time.time()*1000)}"
+            
+            # Derive name and category
+            name = "Imported Project"
+            category = "Imported"
+            
+            # Use the first service's name as project name if available
+            services = proj_data.get('services', [])
+            if services and len(services) > 0:
+                name = services[0].get('name', name)
+                category = services[0].get('language', category)
+                
+            index.append({
+                "id": new_id,
+                "name": name,
+                "category": category,
+                "path": folder
+            })
+            
+            self._write_to_json(index)
+            
+            if self.__window:
+                self.__window.evaluate_js("window.dispatchEvent(new CustomEvent('servo-config-changed'));")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to import project: {e}")
+            self.show_toast_window("Import Failed", f"Invalid .servo.json format: {e}")
+            return False
 
     def start_service(self, project_id, service_id):
         logger.info(f"Request to start service ID: {service_id} for project ID: {project_id}")
@@ -161,7 +328,7 @@ class Api:
 
     def start_project(self, project_id):
         logger.info(f"Request to start all services for project ID: {project_id}")
-        projects = self._load_from_json()
+        projects = self.load_projects()
         project = next((p for p in projects if p.get('id') == project_id), None)
         if not project:
             return False
@@ -173,7 +340,7 @@ class Api:
 
     def stop_project(self, project_id):
         logger.info(f"Request to stop all services for project ID: {project_id}")
-        projects = self._load_from_json()
+        projects = self.load_projects()
         project = next((p for p in projects if p.get('id') == project_id), None)
         if not project:
             return False
@@ -482,8 +649,6 @@ class Api:
                 js_api=self,
                 width=pip_w,
                 height=pip_h,
-                x=init_x,
-                y=init_y,
                 min_size=(100, 30),
                 frameless=True,
                 on_top=True,
@@ -587,26 +752,27 @@ class Api:
                     # No services running OR Main window is in the foreground — hide PiP
                     if pip_is_visible:
                         try:
-                            import ctypes
-                            hwnd = pip_win.native.Handle.ToInt32()
-                            ctypes.windll.user32.ShowWindow(hwnd, 0) # SW_HIDE
-                        except Exception:
                             pip_win.hide()
-                        logger.debug("PiP hidden — main window active or no services running.")
+                        except Exception as e:
+                            logger.error(f"Error hiding PiP: {e}")
+                        logger.info("PiP hidden — main window active or no services running.")
                     if main_is_active and not main_is_minimized:
                         self._pip_paused = False  # reset so PiP reappears next time
                 elif (main_is_minimized or not main_is_active) and not pip_is_active:
                     # Main is minimized OR user switched to another app AND services are running — show PiP
                     if not pip_is_visible and not self._pip_paused:
                         try:
-                            import ctypes
-                            hwnd = pip_win.native.Handle.ToInt32()
-                            ctypes.windll.user32.ShowWindow(hwnd, 8) # SW_SHOWNA
-                        except Exception:
+                            # Use native show() to ensure WebView2 initializes properly
                             pip_win.show()
-                        logger.debug("PiP shown — main window inactive/minimized and services running.")
+                            # Restore focus to whatever app the user was using
+                            import ctypes
+                            if fg and fg != pip_win.native.Handle.ToInt32():
+                                ctypes.windll.user32.SetForegroundWindow(fg)
+                        except Exception as e:
+                            logger.error(f"Error showing PiP: {e}")
+                        logger.info("PiP shown — main window inactive/minimized and services running.")
             except Exception as e:
-                logger.debug(f"PiP monitor error: {e}")
+                logger.error(f"PiP monitor error: {e}", exc_info=True)
 
         logger.info("PiP focus monitor thread exited.")
 
@@ -680,14 +846,13 @@ class Api:
         """
         projects = self._load_from_json()
         project = next((p for p in projects if p.get("id") == project_id), None)
-        if not project or not project.get("services"):
-            return {"error": "Project not found"}
+        if not project or not project.get("path"):
+            return {"error": "Project not found or path is empty"}
         
-        paths = [os.path.abspath(srv.get("path")) for srv in project["services"] if srv.get("path") and os.path.isdir(srv.get("path"))]
-        if not paths:
+        project_root = project.get("path")
+        if not os.path.exists(project_root):
             return {"repos": []}
             
-        project_root = os.path.commonpath(paths)
         discovered_repos = []
         
         for root, dirs, files in os.walk(project_root):

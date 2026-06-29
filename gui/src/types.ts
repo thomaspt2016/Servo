@@ -47,8 +47,10 @@ export interface Project {
   id: string;
   name: string;
   category: string;
+  path?: string;
   description?: string;
   services: Service[];
+  health_status?: 'active' | 'missing' | 'uninitialized' | 'corrupted';
 }
 
 export interface FormService {
@@ -79,6 +81,7 @@ declare global {
         load_projects(): Promise<Project[]>;
         save_project(project: Project): Promise<boolean>;
         delete_project(id: string): Promise<boolean>;
+        import_project(): Promise<boolean>;
         start_service(projectId: string, serviceId: string): Promise<boolean>;
         install_dependencies(projectId: string, serviceId: string): Promise<boolean>;
         start_raw_terminal(terminalId: string, cwd?: string | null): Promise<boolean>;

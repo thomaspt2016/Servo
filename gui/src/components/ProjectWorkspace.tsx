@@ -133,6 +133,45 @@ export default function ProjectWorkspace({
   const [confirmConfig, setConfirmConfig] = useState<{ open: boolean, title: string, message: React.ReactNode, onConfirm: () => void }>({ open: false, title: "", message: "", onConfirm: () => {} });
 
 
+  if (activeProj.health_status && activeProj.health_status !== 'active') {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6 text-center">
+        <AlertTriangle className="h-12 w-12 text-amber-500 mb-2" />
+        <h2 className="text-xl font-bold text-zinc-100">Project Unavailable</h2>
+        <p className="text-sm text-zinc-400 max-w-md">
+          {activeProj.health_status === 'missing' && "The directory for this project could not be found. It may have been moved or deleted."}
+          {activeProj.health_status === 'uninitialized' && "The project folder exists, but the .servo.json configuration file is missing. Would you like to initialize it now?"}
+          {activeProj.health_status === 'corrupted' && "The .servo.json configuration file has syntax errors and could not be parsed. Please fix the JSON syntax manually."}
+        </p>
+        <div className="flex space-x-4 mt-4">
+          {onBack && <Button variant="outline" onClick={onBack}>Go Back</Button>}
+          {activeProj.health_status === 'missing' && (
+            <Button onClick={() => {
+              getApi().pick_folder().then((path: string | null) => {
+                if (path) {
+                  getApi().save_project({ ...activeProj, path }).then(() => {
+                    window.dispatchEvent(new CustomEvent('servo-config-changed'));
+                  });
+                }
+              });
+            }}>
+              Locate Folder
+            </Button>
+          )}
+          {activeProj.health_status === 'uninitialized' && (
+            <Button onClick={() => {
+              getApi().save_project(activeProj).then(() => {
+                window.dispatchEvent(new CustomEvent('servo-config-changed'));
+              });
+            }}>
+              Initialize Servo
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-y-auto p-6 gap-6">
       {/* Project Header Card */}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Layers, Plus, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
+import { Layers, Plus, FolderDown, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Project, GitInfo } from "../types";
@@ -19,6 +19,7 @@ export interface SidebarProps {
   handleNewClick: () => void;
   handleEditClick: (project: Project, e: React.MouseEvent) => void;
   handleDeleteClick: (id: string, e: React.MouseEvent) => void;
+  handleImportClick?: () => void;
   isDockerRunning: boolean;
 }
 
@@ -37,6 +38,7 @@ export default function Sidebar({
   handleNewClick,
   handleEditClick,
   handleDeleteClick,
+  handleImportClick,
   isDockerRunning,
 }: SidebarProps) {
   return (
@@ -54,10 +56,16 @@ export default function Sidebar({
         </div>
 
         {/* Add Project Action */}
-        <Button onClick={handleNewClick} className="w-full justify-start space-x-2 bg-primary/90 text-zinc-100 hover:bg-primary mb-4 shadow-lg shadow-primary/10">
-          <Plus className="h-4 w-4" />
-          <span>Add Project</span>
-        </Button>
+        <div className="flex gap-2 mb-4">
+          <Button onClick={handleNewClick} className="flex-1 justify-center space-x-2 bg-primary/90 text-zinc-100 hover:bg-primary shadow-lg shadow-primary/10">
+            <Plus className="h-4 w-4" />
+            <span>New</span>
+          </Button>
+          <Button onClick={handleImportClick} variant="outline" className="flex-1 justify-center space-x-2 border-zinc-800 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-900 shadow-lg">
+            <FolderDown className="h-4 w-4" />
+            <span>Import</span>
+          </Button>
+        </div>
 
         {/* Navigation Categories */}
         <div className="mb-4">
@@ -128,8 +136,11 @@ export default function Sidebar({
               const runningCount = services.filter(s => statuses[`${project.id}_${s.id}`] === "Running").length;
               const errorCount = services.filter(s => statuses[`${project.id}_${s.id}`] === "Error").length;
               
+              const isHealthy = !project.health_status || project.health_status === 'active';
+              
               let statusColor = "bg-zinc-700";
-              if (errorCount > 0) statusColor = "bg-destructive animate-pulse";
+              if (!isHealthy) statusColor = "bg-amber-500";
+              else if (errorCount > 0) statusColor = "bg-destructive animate-pulse";
               else if (runningCount > 0) statusColor = "bg-emerald-500 animate-pulse";
 
               return (
@@ -142,7 +153,7 @@ export default function Sidebar({
                     isActive
                       ? "bg-zinc-900/80 border-primary/50 shadow-md shadow-primary/5 text-zinc-100"
                       : "bg-zinc-950/40 border-zinc-900 hover:bg-zinc-900/50 hover:border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                  }`}
+                  } ${!isHealthy ? "opacity-50 grayscale" : ""}`}
                 >
                   <div className="flex items-start justify-between w-full">
                     <div className="flex flex-col flex-1 truncate pr-2">
@@ -150,6 +161,21 @@ export default function Sidebar({
                         <span className="text-xs font-bold truncate text-zinc-200">
                           {project.name}
                         </span>
+                        {project.health_status === 'missing' && (
+                          <span title="Directory missing">
+                            <AlertTriangle className="h-3 w-3 flex-shrink-0 text-amber-500/80" />
+                          </span>
+                        )}
+                        {project.health_status === 'uninitialized' && (
+                          <span title="Missing .servo.json">
+                            <AlertTriangle className="h-3 w-3 flex-shrink-0 text-amber-500/80" />
+                          </span>
+                        )}
+                        {project.health_status === 'corrupted' && (
+                          <span title="Invalid .servo.json syntax">
+                            <AlertTriangle className="h-3 w-3 flex-shrink-0 text-red-500/80" />
+                          </span>
+                        )}
                         {services.some(s => s.language?.toLowerCase().includes("docker") || s.command.toLowerCase().includes("docker")) && !isDockerRunning && (
                           <span title="Docker is not running">
                             <AlertTriangle className="h-3 w-3 flex-shrink-0 text-red-500/80" />

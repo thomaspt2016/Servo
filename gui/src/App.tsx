@@ -243,7 +243,17 @@ function App() {
     }, 1000);
     // Refresh git info every 30s
     const gitInterval = setInterval(() => fetchAllGitInfo(), 30000);
-    return () => { clearInterval(interval); clearInterval(gitInterval); };
+    
+    const handleConfigChange = () => {
+      fetchProjects();
+    };
+    window.addEventListener("servo-config-changed", handleConfigChange);
+
+    return () => { 
+      clearInterval(interval); 
+      clearInterval(gitInterval); 
+      window.removeEventListener("servo-config-changed", handleConfigChange);
+    };
   }, [isDesktop]);
 
 
@@ -451,6 +461,7 @@ function App() {
       name: formState.name.trim(),
       description: formState.description.trim() || undefined,
       category: formState.services[0]?.language || "Other",
+      path: formState.services[0]?.path.trim() || "",
       services: formState.services.map(s => ({
         id: s.id,
         name: s.name.trim(),
@@ -639,6 +650,14 @@ function App() {
     setIsEditMode(false);
     setDialogError("");
     setIsDialogOpen(true);
+  };
+
+  const handleImportClick = async () => {
+    try {
+      await getApi().import_project();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
 
@@ -954,6 +973,7 @@ function App() {
           handleNewClick={handleNewClick}
           handleEditClick={handleEditClick}
           handleDeleteClick={handleDeleteClick}
+          handleImportClick={handleImportClick}
           isDockerRunning={isDockerRunning}
         />
       </Suspense>

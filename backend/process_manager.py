@@ -165,8 +165,14 @@ class ProcessManager:
                         
                         language = s.get('language', '')
                         if language in ("Docker", "Docker Compose") or "docker" in s.get('command', '').lower():
-                            if language == "Docker Compose":
-                                expanded_path = os.path.expandvars(s.get('path', p.get('path', '')))
+                            is_compose = language == "Docker Compose" or "docker-compose" in s.get('command', '').lower() or "docker compose" in s.get('command', '').lower()
+                            if is_compose:
+                                svc_path = s.get('path', '')
+                                if svc_path and not os.path.isabs(svc_path):
+                                    svc_path = os.path.normpath(os.path.join(p.get('path', ''), svc_path))
+                                else:
+                                    svc_path = svc_path or p.get('path', '')
+                                expanded_path = os.path.expandvars(os.path.expanduser(svc_path))
                                 expanded_path = os.path.normcase(os.path.abspath(expanded_path))
                                 for c in containers:
                                     working_dir = c.labels.get('com.docker.compose.project.working_dir')
@@ -198,7 +204,11 @@ class ProcessManager:
                                     except Exception as e:
                                         logger.error(f"Error in Docker port logic: {e}")
             except Exception as e:
-                logger.error(f"Error in Docker metrics loop: {e}", exc_info=True)
+                err_str = str(e)
+                if "The system cannot find the file specified" in err_str or "Error while fetching server API version" in err_str:
+                    pass # Docker Desktop is not running, normal state
+                else:
+                    logger.debug(f"Error in Docker metrics loop: {e}")
 
             with self.lock:
                 self.docker_services_running = new_docker_running
@@ -226,8 +236,10 @@ class ProcessManager:
                 return False
             
             language = service.get('language', '')
-            svc_path = os.path.expanduser(service.get('path', ''))
-            
+            svc_path = service.get('path', '')
+            if svc_path and not os.path.isabs(svc_path):
+                svc_path = os.path.normpath(os.path.join(project.get('path', ''), svc_path))
+            svc_path = os.path.expanduser(svc_path)
             if language == 'Node.js':
                 if os.path.exists(os.path.join(svc_path, 'yarn.lock')):
                     cmd = "yarn install"
@@ -462,6 +474,10 @@ class ProcessManager:
                 return False
                 
             path = service.get('path')
+            if path and not os.path.isabs(path):
+                proj_path = project.get('path', '')
+                path = os.path.normpath(os.path.join(proj_path, path))
+                
             command = override_command if override_command else service.get('command')
             name = f"{project.get('name')} - {service.get('name')}"
             venv_path = service.get('venv_path')
@@ -861,7 +877,10 @@ class ProcessManager:
                 key = f"{p_id}_{s_id}"
                 
                 language = s.get('language', '')
-                svc_path = os.path.expanduser(s.get('path', ''))
+                svc_path = s.get('path', '')
+                if svc_path and not os.path.isabs(svc_path):
+                    svc_path = os.path.normpath(os.path.join(p.get('path', ''), svc_path))
+                svc_path = os.path.expanduser(svc_path)
                 
                 has_deps = None
                 if language == 'Node.js':
