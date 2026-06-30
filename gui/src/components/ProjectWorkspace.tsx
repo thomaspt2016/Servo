@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
+import { Play, Square, Copy, Edit2, Trash2, Terminal, Package, ArrowLeft, GitBranch, ChevronDown, ArrowUp, ArrowDown, Check, Circle, AlertTriangle, FolderOpen, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +70,61 @@ export default function ProjectWorkspace({
 
   const [showGitPanel, setShowGitPanel] = useState(false);
   const [gitSummary, setGitSummary] = useState<GitInfo | null>(null);
+
+  const uniquePaths = Array.from(new Set(projectServices.map(s => s.path).filter(p => p && p.trim() !== "")));
+
+  const handleOpenFolder = (path: string) => {
+    if (getApi().open_in_editor) {
+       // We pass "explorer" to fall back to the system default file manager
+       getApi().open_in_editor(path);
+    }
+  };
+
+  const [editorDialogOpen, setEditorDialogOpen] = useState(false);
+  const [installedEditors, setInstalledEditors] = useState<{name: string, path: string}[]>([]);
+  const [preferredEditorName, setPreferredEditorName] = useState("Folder");
+
+  React.useEffect(() => {
+    const fetchEditor = async () => {
+      if (getApi().get_preferred_editor_info) {
+        const info = await getApi().get_preferred_editor_info();
+        if (info && info.name) {
+          setPreferredEditorName(info.name);
+        }
+      }
+    };
+    fetchEditor();
+  }, []);
+
+  const handleSelectEditor = async () => {
+    if (getApi().get_installed_editors) {
+      const editors = await getApi().get_installed_editors();
+      setInstalledEditors(editors);
+    }
+    setEditorDialogOpen(true);
+  };
+
+  const onSelectEditor = async (path: string, name?: string) => {
+    if (getApi().set_preferred_editor) {
+      const res = await getApi().set_preferred_editor(path, name);
+      if (res && res.name) {
+        setPreferredEditorName(res.name);
+      }
+      setEditorDialogOpen(false);
+    }
+  };
+
+  const onBrowseEditor = async () => {
+    if (getApi().select_editor_dialog) {
+      const res = await getApi().select_editor_dialog();
+      if (res && res.success) {
+        if (res.name) {
+          setPreferredEditorName(res.name);
+        }
+        setEditorDialogOpen(false);
+      }
+    }
+  };
 
   const [openLogContainers, setOpenLogContainers] = useState<Record<string, boolean>>({});
   const [containerLogs, setContainerLogs] = useState<Record<string, string>>({});
@@ -173,94 +228,134 @@ export default function ProjectWorkspace({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto p-6 gap-6">
+    <div className="flex-1 flex flex-col overflow-y-auto p-4 gap-4">
       {/* Project Header Card */}
       <Card className="border-zinc-900 bg-zinc-950/40 relative shadow-sm">
-        <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex-1 min-w-0 pr-4">
-            <div className="flex items-center space-x-3 mb-1">
-              {onBack && (
-                <Button variant="ghost" size="icon" onClick={onBack} className="h-7 w-7 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 -ml-1">
-                  <ArrowLeft className="h-4 w-4" />
+        <CardContent className="p-3 flex flex-col gap-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex-1 min-w-0 pr-2">
+              <div className="flex items-center space-x-2 mb-1">
+                {onBack && (
+                  <Button variant="ghost" size="icon" onClick={onBack} className="h-6 w-6 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 -ml-1">
+                    <ArrowLeft className="h-3 w-3" />
+                  </Button>
+                )}
+                <h3 className="text-base font-bold truncate text-zinc-150">
+                  {activeProj.name}
+                </h3>
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0 select-none text-zinc-550 border-zinc-850">
+                  {projectServices.length} {projectServices.length === 1 ? 'Service' : 'Services'}
+                </Badge>
+              </div>
+              <div className="flex items-center space-x-2 text-[11px] text-zinc-500">
+                <span className="truncate">Stack: {Array.from(new Set(projectServices.map(s => s.language || "Python"))).join(", ")}</span>
+                {activeProj.description && (
+                  <>
+                    <span className="text-zinc-700">•</span>
+                    <span className="truncate text-zinc-400" title={activeProj.description}>{activeProj.description}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Project Controls */}
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              {/* Play/Stop All */}
+              {anyRunning ? (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={(e) => handleStopProject(activeProj.id, e)}
+                  className="h-7 px-3 text-[11px] space-x-1.5 font-medium shadow-md shadow-destructive/10"
+                >
+                  <Square className="h-3 w-3 fill-zinc-100" />
+                  <span>Stop Project</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false}
+                  onClick={(e) => handleStartProject(activeProj.id, e)}
+                  className={`h-7 px-3 text-[11px] space-x-1.5 font-medium shadow-md ${projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50' : 'bg-emerald-650 hover:bg-emerald-650 text-zinc-100 shadow-emerald-500/10'}`}
+                  title={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? "Docker is not running" : "Run Project"}
+                >
+                  <Play className="h-3 w-3 fill-current" />
+                  <span>Run Project</span>
                 </Button>
               )}
-              <h3 className="text-lg font-bold truncate text-zinc-150">
-                {activeProj.name}
-              </h3>
-              <Badge variant="outline" className="text-[10px] select-none text-zinc-550 border-zinc-850">
-                {projectServices.length} {projectServices.length === 1 ? 'Service' : 'Services'}
-              </Badge>
-            </div>
-            <p className="text-xs text-zinc-500 truncate">
-              Language/Stack: {Array.from(new Set(projectServices.map(s => s.language || "Python"))).join(", ")}
-            </p>
-            {activeProj.description && (
-              <p className="text-xs text-zinc-400 mt-2 leading-relaxed" title={activeProj.description}>
-                {activeProj.description}
-              </p>
-            )}
-          </div>
 
-          {/* Project Controls */}
-          <div className="flex items-center space-x-3.5 flex-shrink-0 border-t md:border-t-0 border-zinc-900 pt-3 md:pt-0">
-            {/* Play/Stop All */}
-            {anyRunning ? (
               <Button
-                variant="destructive"
+                variant="outline"
                 size="sm"
-                onClick={(e) => handleStopProject(activeProj.id, e)}
-                className="h-8 px-4 text-xs space-x-1.5 font-medium shadow-md shadow-destructive/10"
+                onClick={() => {
+                  const rootPath = activeProj.path || (uniquePaths.length > 0 ? uniquePaths[0] : "");
+                  if (rootPath) handleOpenFolder(rootPath);
+                }}
+                className="h-7 px-3 text-[11px] font-medium border-zinc-800 hover:bg-zinc-800 text-zinc-300"
+                disabled={!activeProj.path && uniquePaths.length === 0}
               >
-                <Square className="h-3 w-3 fill-zinc-100" />
-                <span>Stop Project</span>
+                <FolderOpen className="h-3 w-3 mr-1.5" />
+                <span>Open {preferredEditorName !== "Folder" ? `in ${preferredEditorName}` : "Project"}</span>
               </Button>
-            ) : (
-              <Button
-                variant="default"
-                size="sm"
-                disabled={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false}
-                onClick={(e) => handleStartProject(activeProj.id, e)}
-                className={`h-8 px-4 text-xs space-x-1.5 font-medium shadow-md ${projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed opacity-50' : 'bg-emerald-650 hover:bg-emerald-650 text-zinc-100 shadow-emerald-500/10'}`}
-                title={projectServices.some(s => (s.language === "Docker Compose" || s.language === "Docker" || s.command.toLowerCase().includes("docker"))) && isDockerRunning === false ? "Docker is not running" : "Run Project"}
-              >
-                <Play className="h-3 w-3 fill-current" />
-                <span>Run Project</span>
-              </Button>
-            )}
 
-            <div className="h-6 w-px bg-zinc-850" />
+              <div className="h-4 w-px bg-zinc-850" />
 
-            {/* Config management */}
-            <div className="flex items-center space-x-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => handleDuplicateClick(activeProj, e)}
-                className="h-8 w-8 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
-                title="Duplicate Config"
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => handleEditClick(activeProj, e)}
-                className="h-8 w-8 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
-                title="Edit Config"
-              >
-                <Edit2 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => handleDeleteClick(activeProj.id, e)}
-                className="h-8 w-8 text-zinc-500 hover:text-destructive hover:bg-destructive/10"
-                title="Delete Project"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              {/* Config management */}
+              <div className="flex items-center space-x-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleDuplicateClick(activeProj, e)}
+                  className="h-7 w-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                  title="Duplicate Config"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleEditClick(activeProj, e)}
+                  className="h-7 w-7 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                  title="Edit Config"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => handleDeleteClick(activeProj.id, e)}
+                  className="h-7 w-7 text-zinc-500 hover:text-destructive hover:bg-destructive/10"
+                  title="Delete Project"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
+
+          {/* Project Folders Section (Merged for compactness) */}
+          {uniquePaths.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-900/60">
+              {uniquePaths.map(path => {
+                const folderName = path.split(/[/\\]/).pop() || path;
+                return (
+                  <div key={path} className="flex items-center bg-zinc-950/60 border border-zinc-900/80 rounded-md px-2 py-1 shadow-sm hover:border-zinc-800 transition-colors">
+                    <FolderOpen className="h-3.5 w-3.5 text-zinc-500 mr-2 flex-shrink-0" />
+                    <span className="text-[11px] font-mono text-zinc-300 truncate mr-3 max-w-[150px]" title={path}>{folderName}</span>
+                    <div className="flex items-center flex-shrink-0">
+                      <Button variant="ghost" size="sm" onClick={() => handleOpenFolder(path)} className="h-6 text-[10px] bg-primary/10 hover:bg-primary/20 text-primary px-2 border border-primary/20 rounded-r-none border-r-0">
+                        Open {preferredEditorName !== "Folder" ? `in ${preferredEditorName}` : "Folder"}
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={handleSelectEditor} className="h-6 w-6 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-l-none" title="Select Editor">
+                        <Settings className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -595,6 +690,41 @@ export default function ProjectWorkspace({
               confirmConfig.onConfirm();
             }}>
               Confirm Kill
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editorDialogOpen} onOpenChange={setEditorDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Select Preferred Editor</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+            {installedEditors.map((editor, idx) => (
+              <Button
+                key={idx}
+                variant="outline"
+                className="justify-start text-left h-auto py-3 bg-zinc-900/50 border-zinc-800 hover:bg-zinc-800/80"
+                onClick={() => onSelectEditor(editor.path, editor.name)}
+              >
+                <div className="flex flex-col items-center w-full">
+                  <span className="font-semibold text-zinc-200">{editor.name}</span>
+                </div>
+              </Button>
+            ))}
+            {installedEditors.length === 0 && (
+              <div className="text-sm text-zinc-500 text-center py-4">
+                No standard editors detected.
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex justify-between items-center w-full sm:justify-between">
+            <Button variant="ghost" onClick={() => onSelectEditor("explorer", "Folder")} className="text-zinc-500 text-xs h-8">
+              Reset to Explorer
+            </Button>
+            <Button variant="outline" onClick={onBrowseEditor}>
+              Browse...
             </Button>
           </DialogFooter>
         </DialogContent>

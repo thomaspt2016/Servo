@@ -1,16 +1,17 @@
-# 🚀 Servo v1.0.0 - Initial Release
+# 🚀 Servo v1.1.0 - UI Overhaul & Editor Integrations
 
-Welcome to the very first public release of **Servo**! 🎉
+Welcome to the **Servo v1.1.0** update! 🎉
 
 Servo is a beautiful, highly polished developer dashboard built to streamline your workflow. It allows you to effortlessly manage your background services, Git workflows, and embedded terminals in a clean, floating interface that stays out of your way until you need it.
 
 ## ✨ Key Features
-- **Floating PiP Dashboard**: A picture-in-picture overlay that gives you a bird's-eye view of your running services and instantly snaps out of the way when you don't need it. Smoothly draggable and seamlessly integrated.
+- **Integrated Editor Support**: Auto-detects and seamlessly integrates with VS Code, Cursor, JetBrains IDEs, and more. Quick-open projects and services directly from the dashboard sidebar or workspace controls.
+- **In-App Documentation**: An integrated, split-pane Markdown documentation viewer right inside the app, beautifully styled to match your workspace.
+- **Refined Workspace UI**: Redesigned, compact project workspace layout to give you maximum vertical space for your terminal and Docker log views.
+- **Dynamic Headers**: The app top bar now dynamically syncs with your active project and active views.
+- **Floating PiP Dashboard**: A picture-in-picture overlay that gives you a bird's-eye view of your running services and instantly snaps out of the way when you don't need it.
 - **Embedded PowerShell Terminals**: Start, stop, and interact with your project services in fully integrated, native Windows terminals. 
-- **Git Workflow Automation**: Track changes, stage files, and commit directly from your dashboard with clean, silent background processes (no more annoying flashing terminal windows!).
-- **Global Hotkey Support**: Instantly summon or hide your dashboard using global keyboard shortcuts (`Ctrl+Alt+S`).
-- **Native OS Notifications**: Get rock-solid native Windows alerts when services boot up, fail, or complete tasks.
-- **Beautiful UI**: A deeply customized, modern dark-mode interface loaded with smooth animations, curated typography, and an obsessive focus on design aesthetics.
+- **Git Workflow Automation**: Track changes, stage files, and commit directly from your dashboard with clean, silent background processes.
 
 ## 🛠️ Installation Instructions
 1. Download the `Servo_Setup_v1.0.0.exe` installer file attached below.

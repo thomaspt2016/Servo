@@ -418,6 +418,45 @@ class Api(DockerMixin, WindowMixin):
     def get_statuses(self):
         return self._process_manager.get_statuses()
 
+    def show_dialog(self, title, message, dialog_type="info"):
+        return self._window.create_message_dialog(title, message)
+
+    def get_doc_pages(self):
+        import os
+        docs_dir = os.path.join(self.base_dir, 'docs')
+        if not os.path.exists(docs_dir):
+            return []
+        
+        pages = []
+        for root, _, files in os.walk(docs_dir):
+            for file in files:
+                if file.endswith('.md'):
+                    rel_path = os.path.relpath(os.path.join(root, file), docs_dir)
+                    title = os.path.splitext(os.path.basename(file))[0].replace('-', ' ').title()
+                    pages.append({"path": rel_path.replace('\\', '/'), "title": title})
+                    
+        # Sort so index is first
+        pages.sort(key=lambda x: (x["path"] != "index.md", x["title"]))
+        return pages
+
+    def get_doc_content(self, rel_path):
+        import os
+        docs_dir = os.path.join(self.base_dir, 'docs')
+        full_path = os.path.abspath(os.path.join(docs_dir, rel_path))
+        
+        # Security check to prevent directory traversal
+        if not full_path.startswith(docs_dir):
+            return "# Error\nInvalid path."
+            
+        if not os.path.exists(full_path):
+            return f"# Error\nDocument `{rel_path}` not found."
+            
+        with open(full_path, 'r', encoding='utf-8') as f:
+            return f.read()
+
+    def get_settings(self):
+        return self._process_manager.get_metrics()
+
     def get_dependency_statuses(self):
         return self._process_manager.get_dependency_statuses()
 
@@ -952,3 +991,186 @@ class Api(DockerMixin, WindowMixin):
         err_msg = stderr if stderr else (stdout if stdout else "git push failed")
         return {"success": False, "message": err_msg}
 
+    def get_settings(self):
+        import json
+        import os
+        settings_path = os.path.join(os.path.dirname(self.storage_path), 'settings.json')
+        if not os.path.exists(settings_path):
+            return {"preferred_editor": "explorer"}
+        try:
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {"preferred_editor": "explorer"}
+
+    def save_settings(self, settings):
+        import json
+        import os
+        settings_path = os.path.join(os.path.dirname(self.storage_path), 'settings.json')
+        try:
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save settings: {e}")
+            return False
+
+    def open_in_editor(self, path):
+        import subprocess
+        import sys
+        import os
+        
+        try:
+            settings = self.get_settings()
+            preferred_editor = settings.get("preferred_editor", "")
+            
+            if preferred_editor and preferred_editor != "explorer" and preferred_editor != "code":
+                # Assuming it's a valid path to an executable
+                if sys.platform == "darwin" and preferred_editor.endswith(".app"):
+                    subprocess.Popen(["open", "-a", preferred_editor, path])
+                else:
+                    subprocess.Popen([preferred_editor, path])
+                return True
+            elif preferred_editor == "code":
+                # If they explicitly chose 'code', try it but it might fail on Windows if not in PATH or needs shell=True
+                subprocess.Popen(["code", path], shell=(sys.platform == "win32"))
+                return True
+
+            # fallback to file explorer
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+            return True
+        except Exception as e:
+            logger.error(f"Failed to open folder: {e}")
+            # Final fallback
+            try:
+                if sys.platform == "win32":
+                    os.startfile(path)
+            except:
+                pass
+            return False
+
+    def select_editor_dialog(self):
+        import webview
+        import sys
+        try:
+            if sys.platform == 'win32':
+                file_types = ('Executable Files (*.exe)', 'All Files (*.*)')
+            elif sys.platform == 'darwin':
+                file_types = ('Applications (*.app)', 'All Files (*.*)')
+            else:
+                file_types = ('All Files (*.*)',)
+            
+            result = self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=file_types)
+            if result and len(result) > 0:
+                editor_path = result[0]
+                res = self.set_preferred_editor(editor_path)
+                return {"success": True, "editor": editor_path, "name": res.get("name", "Unknown")}
+            return {"success": False, "message": "No file selected"}
+        except Exception as e:
+            logger.error(f"Failed to open file dialog: {e}")
+            return {"success": False, "message": str(e)}
+
+    def get_installed_editors(self):
+        import os
+        import sys
+        editors = []
+        if sys.platform == 'win32':
+            user_profile = os.environ.get('USERPROFILE', '')
+            prog_files = os.environ.get('PROGRAMFILES', 'C:\\Program Files')
+            prog_files_x86 = os.environ.get('PROGRAMFILES(X86)', 'C:\\Program Files (x86)')
+            local_app_data = os.environ.get('LOCALAPPDATA', os.path.join(user_profile, 'AppData', 'Local'))
+            
+            paths = {
+                'VS Code': [
+                    os.path.join(local_app_data, 'Programs', 'Microsoft VS Code', 'Code.exe'),
+                    os.path.join(prog_files, 'Microsoft VS Code', 'Code.exe')
+                ],
+                'Cursor': [
+                    os.path.join(local_app_data, 'Programs', 'cursor', 'Cursor.exe')
+                ],
+                'Sublime Text': [
+                    os.path.join(prog_files, 'Sublime Text', 'sublime_text.exe'),
+                    os.path.join(prog_files, 'Sublime Text 3', 'sublime_text.exe')
+                ],
+                'Notepad++': [
+                    os.path.join(prog_files, 'Notepad++', 'notepad++.exe'),
+                    os.path.join(prog_files_x86, 'Notepad++', 'notepad++.exe')
+                ]
+            }
+            for name, candidates in paths.items():
+                for path in candidates:
+                    if os.path.exists(path):
+                        editors.append({'name': name, 'path': path})
+                        break
+            
+            # JetBrains
+            jb_path = os.path.join(prog_files, 'JetBrains')
+            if os.path.exists(jb_path):
+                try:
+                    for d in os.listdir(jb_path):
+                        if any(x in d for x in ['IntelliJ', 'PyCharm', 'WebStorm', 'PhpStorm', 'GoLand', 'CLion', 'Rider', 'RubyMine']):
+                            exe_name = 'idea64.exe' if 'IntelliJ' in d else (d.split()[0].lower() + '64.exe')
+                            if 'PyCharm' in d: exe_name = 'pycharm64.exe'
+                            exe_path = os.path.join(jb_path, d, 'bin', exe_name)
+                            if os.path.exists(exe_path):
+                                editors.append({'name': d, 'path': exe_path})
+                except Exception:
+                    pass
+        elif sys.platform == 'darwin':
+            apps = [
+                ("VS Code", "/Applications/Visual Studio Code.app"),
+                ("Cursor", "/Applications/Cursor.app"),
+                ("Sublime Text", "/Applications/Sublime Text.app"),
+                ("IntelliJ IDEA", "/Applications/IntelliJ IDEA.app"),
+                ("PyCharm", "/Applications/PyCharm.app"),
+                ("WebStorm", "/Applications/WebStorm.app")
+            ]
+            for name, path in apps:
+                if os.path.exists(path):
+                    editors.append({'name': name, 'path': path})
+        
+        return editors
+
+    def get_preferred_editor_info(self):
+        import os
+        settings = self.get_settings()
+        path = settings.get("preferred_editor", "explorer")
+        name = settings.get("preferred_editor_name", "")
+        
+        if path == "explorer" or path == "code": # handle legacy 'code'
+            if path == "code":
+                return {"path": "code", "name": "VS Code"}
+            return {"path": "explorer", "name": "Folder"}
+            
+        if not name:
+            if path:
+                basename = os.path.basename(path)
+                name, _ = os.path.splitext(basename)
+                name = name.capitalize()
+            else:
+                name = "Folder"
+                path = "explorer"
+                
+        return {"path": path, "name": name}
+
+    def set_preferred_editor(self, path, name=None):
+        import os
+        settings = self.get_settings()
+        settings["preferred_editor"] = path
+        if not name and path and path != "explorer" and path != "code":
+            basename = os.path.basename(path)
+            name, _ = os.path.splitext(basename)
+            name = name.capitalize()
+        elif path == "explorer":
+            name = "Folder"
+        elif path == "code":
+            name = "VS Code"
+            
+        settings["preferred_editor_name"] = name
+        self.save_settings(settings)
+        return {"success": True, "name": name}

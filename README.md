@@ -26,6 +26,7 @@ Whether you're juggling microservices, full-stack monorepos, or disparate script
 ## 🌟 Key Features
 
 * 💻 **Language Agnostic:** Run Python, Node.js, Rust, Go, or arbitrary shell scripts with ease.
+* 📝 **Integrated Editor Support:** Auto-detects and seamlessly integrates with VS Code, Cursor, JetBrains IDEs, and more to quick-open projects directly from the dashboard.
 * 🖥️ **PiP Overlay Mode:** Seamlessly monitor your running services with a discreet Picture-in-Picture window that snaps to the bottom right of your screen.
 * ⚡ **Global Hotkey (Windows):** Toggle the dashboard instantly from anywhere using `Ctrl+Alt+S`.
 * 🛡️ **Graceful Process Tree Termination:** Never leave zombie processes behind. Servo aggressively cleans up child process trees (`taskkill` on Windows, `SIGTERM` on Unix).

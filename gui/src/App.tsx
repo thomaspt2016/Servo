@@ -21,6 +21,7 @@ const Sidebar = lazy(() => import('./components/Sidebar'));
 const DashboardOverview = lazy(() => import('./components/DashboardOverview'));
 const ProjectWorkspace = lazy(() => import('./components/ProjectWorkspace'));
 const ProjectConfigDialog = lazy(() => import('./components/ProjectConfigDialog'));
+const DocumentationView = lazy(() => import('./components/DocumentationView').then(module => ({ default: module.DocumentationView })));
 import { CommandPalette } from './components/CommandPalette';
 
 const getApi = () => {
@@ -79,6 +80,7 @@ function App() {
   });
   // Terminal / Logs Panel State
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [showDocs, setShowDocs] = useState<boolean>(false);
 
 
   
@@ -131,6 +133,7 @@ function App() {
 
   const handleSelectProject = (id: string | null) => {
     setActiveProjectId(id);
+    setShowDocs(false);
     setIsDialogOpen(false);
   };
 
@@ -1032,6 +1035,7 @@ function App() {
           handleDeleteClick={handleDeleteClick}
           handleImportClick={handleImportClick}
           isDockerRunning={isDockerRunning}
+          setShowDocs={setShowDocs}
         />
       </Suspense>
 
@@ -1040,7 +1044,7 @@ function App() {
           <div className="flex items-center space-x-3">
             <Layers className="h-5 w-5 text-primary/80" />
             <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">
-              {activeProjectId ? "Project Workspace" : "Dashboard Overview"}
+              {showDocs ? "Documentation" : activeProjectId ? (projects.find(p => p.id === activeProjectId)?.name || "Project Workspace") : "Dashboard Overview"}
             </h2>
           </div>
 
@@ -1145,6 +1149,10 @@ function App() {
               handleBrowseCommandFile={handleBrowseCommandFile}
               handleAddServiceForm={handleAddServiceForm}
             />
+          </Suspense>
+        ) : showDocs ? (
+          <Suspense fallback={<div className="p-8 text-zinc-500">Loading docs...</div>}>
+            <DocumentationView />
           </Suspense>
         ) : activeProjectId ? (
           (() => {

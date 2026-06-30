@@ -1,8 +1,12 @@
 import React from "react";
-import { Layers, Plus, FolderDown, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle, AlertTriangle } from "lucide-react";
+import { Layers, Plus, FolderDown, Search, X, RefreshCw, Edit2, Trash2, GitBranch, ArrowUp, ArrowDown, Check, Circle, AlertTriangle, Book, Code } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Project, GitInfo } from "../types";
+
+const getApi = () => {
+  return (window as any).pywebview.api;
+};
 
 export interface SidebarProps {
   categories: string[];
@@ -21,6 +25,7 @@ export interface SidebarProps {
   handleDeleteClick: (id: string, e: React.MouseEvent) => void;
   handleImportClick?: () => void;
   isDockerRunning: boolean;
+  setShowDocs: (show: boolean) => void;
 }
 
 export default function Sidebar({
@@ -40,6 +45,7 @@ export default function Sidebar({
   handleDeleteClick,
   handleImportClick,
   isDockerRunning,
+  setShowDocs,
 }: SidebarProps) {
   return (
     <aside className="w-80 border-r border-zinc-900 bg-zinc-950/70 p-5 flex flex-col justify-between glass z-10">
@@ -148,6 +154,7 @@ export default function Sidebar({
                   key={project.id}
                   onClick={() => {
                     setActiveProjectId(project.id);
+                    setShowDocs(false);
                   }}
                   className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all duration-300 group relative flex flex-col gap-2 overflow-hidden ${
                     isActive
@@ -195,7 +202,21 @@ export default function Sidebar({
                       {/* Actions */}
                       <div className="absolute right-0 flex items-center space-x-0.5 opacity-0 scale-95 translate-x-2 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-x-0 transition-all duration-300">
                         <button
-                          onClick={(e) => handleEditClick(project, e)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const path = project.path || (project.services && project.services.length > 0 ? project.services[0].path : undefined);
+                            if (path) getApi().open_in_editor(path);
+                          }}
+                          className="p-1.5 text-zinc-500 hover:text-primary hover:bg-primary/15 rounded-md transition-all"
+                          title="Open in Code Editor"
+                        >
+                          <Code className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditClick(project, e);
+                          }}
                           className="p-1.5 text-zinc-500 hover:text-primary hover:bg-primary/15 rounded-md transition-all"
                           title="Edit Project"
                         >
@@ -269,7 +290,17 @@ export default function Sidebar({
       </div>
 
       {/* Footer / Credits */}
-      <div className="mt-4 flex flex-col items-center justify-center">
+      <div className="mt-4 flex flex-col items-center justify-center space-y-3">
+        <button 
+          onClick={() => {
+            setActiveProjectId(null);
+            setShowDocs(true);
+          }}
+          className="text-xs font-semibold text-zinc-400 hover:text-primary transition-colors flex items-center space-x-1.5 bg-zinc-900/50 hover:bg-primary/10 px-3 py-1.5 rounded-full border border-zinc-800/80"
+        >
+          <Book className="h-3.5 w-3.5" />
+          <span>Documentation</span>
+        </button>
         <a 
           href="https://github.com/thomaspt2016/Servo" 
           target="_blank" 

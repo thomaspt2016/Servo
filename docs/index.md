@@ -7,6 +7,7 @@
 Whether you're juggling microservices, full-stack monorepos, or disparate scripts, Servo allows you to manage multiple development environments simultaneously. 
 
 * **Language Agnostic**: Run Python, Node.js, Rust, Go, or any shell script.
+* **Integrated Editor Support**: Auto-detects and seamlessly integrates with VS Code, Cursor, JetBrains IDEs, and more to quick-open projects directly from the dashboard.
 * **PiP Overlay Mode**: Monitor running services with a discreet Picture-in-Picture window.
 * **Global Hotkeys**: Toggle the dashboard instantly.
 * **Graceful Termination**: Aggressively cleans up child process trees so you don't leave zombie processes behind.
