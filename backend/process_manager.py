@@ -292,7 +292,11 @@ class ProcessManager(PortMixin):
                             agent_proc = psutil.Process(proc.pid)
                             for shell_proc in agent_proc.children():
                                 for cmd_proc in shell_proc.children():
-                                    subprocess.run(f"taskkill /F /T /PID {cmd_proc.pid}", shell=True, capture_output=True)
+                                    import subprocess as sp
+                                    kwargs = {"shell": True, "capture_output": True}
+                                    if os.name == 'nt':
+                                        kwargs["creationflags"] = sp.CREATE_NO_WINDOW
+                                    sp.run(f"taskkill /F /T /PID {cmd_proc.pid}", **kwargs)
                         except Exception as e:
                             logger.debug(f"Aggressive Ctrl+C psutil kill failed: {e}")
                     
@@ -742,8 +746,11 @@ class ProcessManager(PortMixin):
 
                 self.intentionally_stopped.add(key)
                 if os.name == 'nt':
-                    # Windows: Forcefully terminate process tree
-                    subprocess.run(f"taskkill /F /T /PID {proc.pid}", shell=True, capture_output=True)
+                    import subprocess as sp
+                    kwargs = {"shell": True, "capture_output": True}
+                    if os.name == 'nt':
+                        kwargs["creationflags"] = sp.CREATE_NO_WINDOW
+                    sp.run(f"taskkill /F /T /PID {proc.pid}", **kwargs)
                 else:
                     # Unix/macOS: Terminate process group
                     try:

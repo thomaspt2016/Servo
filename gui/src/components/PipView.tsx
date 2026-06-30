@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Layers, ExternalLink, X } from "lucide-react";
 import type { Project, Service } from "../types";
 
@@ -6,8 +6,6 @@ export function PipView() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [isReady, setIsReady] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
 
   const getApi = () => window.pywebview!.api;
 
@@ -42,21 +40,7 @@ export function PipView() {
     return () => clearInterval(interval);
   }, [isReady]);
 
-  // Native drag via -webkit-app-region handled in CSS; mouse events for fallback
-  const onDragStart = (e: React.MouseEvent) => {
-    setDragging(true);
-    dragOffset.current = { x: e.clientX, y: e.clientY };
-  };
-  useEffect(() => {
-    const onMove = (_e: MouseEvent) => {
-      if (!dragging) return;
-      // pywebview frameless windows are draggable natively; this is a visual cue only
-    };
-    const onUp = () => setDragging(false);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, [dragging]);
+  // Native drag handled entirely by pywebview-drag-region class
 
   const allServices: { project: Project; service: Service }[] = [];
   projects.forEach(p => (p.services || []).forEach(s => allServices.push({ project: p, service: s })));
@@ -82,7 +66,7 @@ export function PipView() {
       }}
     >
       {/* Drag handle */}
-      <div onMouseDown={onDragStart} className="pywebview-drag-region flex-1 h-full flex items-center cursor-grab active:cursor-grabbing pl-4">
+      <div className="pywebview-drag-region flex-1 h-full flex items-center cursor-grab active:cursor-grabbing pl-4">
         <Layers className="h-4 w-4 text-primary opacity-80" />
       </div>
       

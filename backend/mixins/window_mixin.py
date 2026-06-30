@@ -149,3 +149,22 @@ class WindowMixin:
                 logger.error(f"Error focusing main window: {e}")
             return True
         return False
+
+    def drag_pip(self):
+        """Native OS drag for frameless window bypassing WebView2 hang issues."""
+        import os
+        if os.name == 'nt' and self._pip_window:
+            import ctypes
+            import threading
+            
+            def _drag():
+                try:
+                    user32 = ctypes.windll.user32
+                    hwnd = self._pip_window.native.Handle.ToInt32()
+                    user32.ReleaseCapture()
+                    user32.SendMessageW(hwnd, 0xA1, 2, 0)
+                except Exception as e:
+                    logger.error(f"Error dragging PiP window natively: {e}")
+            
+            threading.Thread(target=_drag, daemon=True).start()
+        return True

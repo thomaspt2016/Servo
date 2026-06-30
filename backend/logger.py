@@ -26,7 +26,12 @@ class AccessibilityLogFilter(logging.Filter):
             return False
         return True
 
-log_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'servo.log')
+if sys.platform == 'win32':
+    app_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'Servo')
+else:
+    app_data_dir = os.path.join(os.path.expanduser('~'), '.servo')
+os.makedirs(app_data_dir, exist_ok=True)
+log_file_path = os.path.join(app_data_dir, 'servo.log')
 file_handler = RotatingFileHandler(log_file_path, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
 stream_handler = logging.StreamHandler(sys.stdout)
 

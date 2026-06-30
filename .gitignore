@@ -16,3 +16,10 @@ gui/.env*
 .vscode/
 .idea/
 .DS_Store
+# PyInstaller builds
+dist/
+build/
+*.spec
+
+# Inno Setup output
+installer_output/

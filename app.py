@@ -56,6 +56,7 @@ if __name__ == '__main__':
         height=PIP_HEIGHT,
         min_size=PIP_MIN_SIZE,
         frameless=True,
+        easy_drag=False,
         on_top=True,
         background_color=PIP_BG_COLOR,
         shadow=True,

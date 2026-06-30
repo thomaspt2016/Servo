@@ -17,7 +17,14 @@ from backend.mixins.window_mixin import WindowMixin
 class Api(DockerMixin, WindowMixin):
     def __init__(self):
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.storage_path = os.path.join(self.base_dir, STORAGE_FILE)
+        
+        import sys
+        if sys.platform == 'win32':
+            app_data_dir = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'Servo')
+        else:
+            app_data_dir = os.path.join(os.path.expanduser('~'), '.servo')
+        os.makedirs(app_data_dir, exist_ok=True)
+        self.storage_path = os.path.join(app_data_dir, STORAGE_FILE)
         self.storage_lock = threading.RLock()
         self.__window = None
         
@@ -648,13 +655,16 @@ class Api(DockerMixin, WindowMixin):
     def _run_git(self, args, cwd):
         """Run a git command in the given directory and return (stdout, stderr, returncode)."""
         try:
-            result = subprocess.run(
-                ["git"] + args,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            kwargs = {
+                "cwd": cwd,
+                "capture_output": True,
+                "text": True,
+                "timeout": 10
+            }
+            if os.name == 'nt':
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                
+            result = subprocess.run(["git"] + args, **kwargs)
             return result.stdout.strip('\r\n'), result.stderr.strip('\r\n'), result.returncode
         except FileNotFoundError:
             return "", "git not found", 1
