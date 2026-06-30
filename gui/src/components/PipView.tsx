@@ -82,12 +82,12 @@ export function PipView() {
       }}
     >
       {/* Drag handle */}
-      <div onMouseDown={onDragStart} className="flex-1 h-full flex items-center cursor-grab active:cursor-grabbing pl-4" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
+      <div onMouseDown={onDragStart} className="pywebview-drag-region flex-1 h-full flex items-center cursor-grab active:cursor-grabbing pl-4">
         <Layers className="h-4 w-4 text-primary opacity-80" />
       </div>
       
       {/* Actions */}
-      <div className="flex flex-row gap-4 items-center pr-4" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+      <div className="flex flex-row gap-4 items-center pr-4">
         <div className={`h-2.5 w-2.5 rounded-full mr-1 ${runningCount > 0 ? "bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50" : "bg-zinc-700"}`} title={`${runningCount}/${totalCount} running`} />
         
         <button onClick={handleFocusMain} title="Open Servo" className="h-8 w-8 rounded-full flex items-center justify-center bg-zinc-800/80 hover:bg-primary/20 hover:text-primary text-zinc-300 transition-colors">

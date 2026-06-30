@@ -10,13 +10,14 @@ from watchdog.events import FileSystemEventHandler
 from backend.logger import logger
 from backend.process_manager import ProcessManager
 
-# We duplicate DEBUG here so it can be set. If needed, you can import it or set it in app.py
-DEBUG = False
+from backend.config import DEBUG, STORAGE_FILE
+from backend.mixins.docker_mixin import DockerMixin
+from backend.mixins.window_mixin import WindowMixin
 
-class Api:
+class Api(DockerMixin, WindowMixin):
     def __init__(self):
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.storage_path = os.path.join(self.base_dir, 'storage.json')
+        self.storage_path = os.path.join(self.base_dir, STORAGE_FILE)
         self.storage_lock = threading.RLock()
         self.__window = None
         
@@ -100,22 +101,23 @@ class Api:
     def load_projects(self):
         index = self._load_from_json()
         full_projects = []
+        valid_index = []
+        index_changed = False
+        
         for p in index:
             proj = dict(p)
             proj_path = p.get('path', '')
             proj['path'] = proj_path
             
             if not os.path.exists(proj_path):
-                proj['health_status'] = 'missing'
-                proj['services'] = []
-                full_projects.append(proj)
+                logger.warning(f"Project path missing, removing from database: {proj_path}")
+                index_changed = True
                 continue
                 
             servo_file = os.path.join(proj_path, '.servo.json')
             if not os.path.exists(servo_file):
-                proj['health_status'] = 'uninitialized'
-                proj['services'] = []
-                full_projects.append(proj)
+                logger.warning(f"Project missing .servo.json, removing from database: {proj_path}")
+                index_changed = True
                 continue
                 
             try:
@@ -123,23 +125,44 @@ class Api:
                     servo_data = json.load(f)
                 
                 services = servo_data.get('services', [])
+                valid_services = []
+                services_changed = False
+                
                 for s in services:
                     s['raw_path'] = s.get('path', '.')
                     s['raw_venv_path'] = s.get('venv_path', '')
                     
                     s['path'] = os.path.abspath(os.path.join(proj_path, s['raw_path'])).replace('\\', '/')
+                    if not os.path.exists(s['path']):
+                        logger.warning(f"Service path missing, removing service '{s.get('name')}': {s['path']}")
+                        services_changed = True
+                        continue
+                        
                     if s['raw_venv_path']:
                         s['venv_path'] = os.path.abspath(os.path.join(proj_path, s['raw_venv_path'])).replace('\\', '/')
+                        if not os.path.exists(s['venv_path']):
+                            logger.warning(f"Virtual environment path missing for service '{s.get('name')}': {s['venv_path']}")
+                            s['raw_venv_path'] = ''
+                            s['venv_path'] = ''
+                            services_changed = True
+                            
+                    valid_services.append(s)
+                    
+                if services_changed:
+                    servo_data['services'] = valid_services
+                    with open(servo_file, 'w', encoding='utf-8') as f:
+                        json.dump(servo_data, f, indent=2)
                         
-                proj['services'] = services
+                proj['services'] = valid_services
                 proj['health_status'] = 'active'
+                valid_index.append(p)
                 full_projects.append(proj)
             except Exception as e:
                 logger.error(f"Error parsing {servo_file}: {e}")
-                proj['health_status'] = 'corrupted'
-                proj['services'] = []
-                full_projects.append(proj)
                 
+        if index_changed:
+            self._write_to_json(valid_index)
+            
         # Setup watchers for any active projects
         self._setup_watchers(full_projects)
         return full_projects
@@ -150,11 +173,12 @@ class Api:
         # Remove old watches
         for path in list(self._watch_paths.keys()):
             if path not in current_paths:
-                try:
-                    self._observer.unschedule(self._watch_paths[path])
-                except Exception as e:
-                    logger.debug(f"Error unscheduling watch for {path}: {e}")
-                del self._watch_paths[path]
+                watch = self._watch_paths.pop(path, None)
+                if watch:
+                    try:
+                        self._observer.unschedule(watch)
+                    except Exception as e:
+                        logger.debug(f"Error unscheduling watch for {path}: {e}")
                 
         # Add new watches
         for path in current_paths:
@@ -269,8 +293,8 @@ class Api:
             logger.error(f"Failed to read .env file at {file_path}: {e}")
             return {}
         
-    def import_project(self):
-        folder = self.pick_folder()
+    def import_project(self, folder_path=None):
+        folder = folder_path if folder_path else self.pick_folder()
         if not folder:
             return False
             
@@ -354,6 +378,10 @@ class Api:
         for s in project.get('services', []):
             if not self.start_service(project_id, s.get('id')):
                 success = False
+                
+        # Start proxy if applicable
+        self._process_manager.start_project_proxy(project_id, project)
+        
         return success
 
     def stop_project(self, project_id):
@@ -364,48 +392,24 @@ class Api:
             return False
         for s in project.get('services', []):
             self.stop_service(project_id, s.get('id'))
+            
+        # Stop proxy
+        proxy_key = f"{project_id}_proxy"
+        with self._process_manager.lock:
+            if proxy_key in self._process_manager.processes:
+                proc = self._process_manager.processes[proxy_key]
+                try:
+                    proc.terminate()
+                except Exception as e:
+                    logger.error(f"Failed to terminate proxy {proxy_key}: {e}")
+                del self._process_manager.processes[proxy_key]
+                if proxy_key in self._process_manager.active_ports:
+                    del self._process_manager.active_ports[proxy_key]
+                    
         return True
 
     def get_statuses(self):
         return self._process_manager.get_statuses()
-
-    def get_docker_containers(self):
-        with self._process_manager.lock:
-            return self._process_manager.docker_containers.copy()
-
-    def stop_docker_container(self, container_name):
-        try:
-            import docker
-            client = docker.from_env()
-            container = client.containers.get(container_name)
-            container.stop()
-            return True
-        except Exception as e:
-            logger.error(f"Failed to stop docker container {container_name}: {e}")
-            return False
-
-    def start_docker_container(self, container_name):
-        try:
-            import docker
-            client = docker.from_env()
-            container = client.containers.get(container_name)
-            container.start()
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start docker container {container_name}: {e}")
-            return False
-
-    def get_docker_container_logs(self, container_name):
-        try:
-            import docker
-            client = docker.from_env()
-            container = client.containers.get(container_name)
-            # Get last 1000 lines
-            logs = container.logs(tail=1000).decode('utf-8')
-            return logs
-        except Exception as e:
-            logger.error(f"Failed to get docker container logs {container_name}: {e}")
-            return str(e)
 
     def get_dependency_statuses(self):
         return self._process_manager.get_dependency_statuses()
@@ -631,217 +635,7 @@ class Api:
         logger.info(f"Detected installed languages on system: {installed}")
         return installed
 
-    def open_pip(self):
-        """Open the PiP floating overlay window (starts hidden; shown when main loses focus)."""
-        if self._pip_window is not None:
-            logger.info("PiP window already open.")
-            return True
 
-        if not hasattr(self, 'is_main_focused'):
-            self.is_main_focused = True
-
-        logger.info("Opening PiP overlay window...")
-        try:
-            # Build the URL — use #pip hash (query params break on file:// URLs)
-            if DEBUG:
-                pip_url = 'http://localhost:5173/#pip'
-            else:
-                html_path = os.path.join(self.base_dir, 'gui', 'dist', 'index.html')
-                pip_url = f'file:///{html_path.replace(chr(92), "/")}#pip'
-
-            pip_w = 280
-            pip_h = 48
-            
-            init_x = None
-            init_y = None
-            try:
-                import screeninfo
-                monitors = screeninfo.get_monitors()
-                if monitors:
-                    m = next((m for m in monitors if m.is_primary), monitors[0])
-                    init_x = int(m.x + m.width - pip_w - 20)
-                    init_y = int(m.y + m.height - pip_h - 60)
-            except Exception as se:
-                logger.error(f"screeninfo error before pip creation: {se}")
-
-            pip_win = webview.create_window(
-                'Servo PiP',
-                pip_url,
-                js_api=self,
-                width=pip_w,
-                height=pip_h,
-                min_size=(100, 30),
-                frameless=True,
-                on_top=True,
-                background_color='#09090b',
-                shadow=True,
-                hidden=True
-            )
-            self._pip_window = pip_win
-
-            # When the user closes the PiP via its own X button, clear the reference
-            def _on_pip_closed():
-                logger.info("PiP window closed by user.")
-                self._pip_window = None
-            pip_win.events.closed += _on_pip_closed
-
-            if os.name == 'nt':
-                def _init_pip():
-                    import time, ctypes
-                    time.sleep(0.6)  # Wait for window handle to be ready
-                    try:
-                        # Position in bottom-right corner
-                        # Hide immediately if main window is currently in focus
-                        main_hwnd = self._window.native.Handle.ToInt32()
-                        fg = ctypes.windll.user32.GetForegroundWindow()
-                        if fg == main_hwnd:
-                            pip_win.hide()
-                            logger.info("PiP hidden on startup — main window is active.")
-                    except Exception as e:
-                        logger.error(f"PiP init failed: {e}")
-
-                threading.Thread(target=_init_pip, daemon=True).start()
-                # Start the focus monitor
-                threading.Thread(target=self._pip_focus_monitor, daemon=True).start()
-
-            logger.info("PiP overlay window created.")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to open PiP window: {e}", exc_info=True)
-            return False
-
-    def close_pip(self):
-        """Close the PiP overlay window."""
-        if self._pip_window is not None:
-            logger.info("Closing PiP overlay window...")
-            try:
-                self._pip_window.destroy()
-            except Exception as e:
-                logger.error(f"Error closing PiP window: {e}")
-            finally:
-                self._pip_window = None
-            return True
-        return False
-
-    def report_focus(self, is_focused):
-        """Called by frontend to report whether the main window's webview has focus."""
-        self.is_main_focused = is_focused
-
-    def show_toast_window(self, title, message):
-        """Spawns a highly reliable native Windows notification."""
-        try:
-            logger.info(f"Triggering native Windows notification: '{title}'")
-            
-            def _send_toast():
-                try:
-                    from win11toast import toast
-                    toast(title, message, app_id="Servo Dashboard")
-                    logger.info("Native toast sent successfully.")
-                except Exception as e:
-                    logger.error(f"win11toast failed: {e}")
-
-            import threading
-            threading.Thread(target=_send_toast, daemon=True).start()
-            
-        except Exception as e:
-            logger.error(f"Failed to initiate native toast: {e}", exc_info=True)
-
-    def _pip_focus_monitor(self):
-        """Background thread: show PiP when main loses focus/minimizes, hide when main is active."""
-        import ctypes, time
-        user32 = ctypes.windll.user32
-
-        # Wait briefly for both window handles to be available
-        time.sleep(0.8)
-
-        while self._pip_window is not None:
-            time.sleep(0.3)
-            try:
-                pip_win = self._pip_window
-                if pip_win is None:
-                    break
-
-                main_hwnd = self._window.native.Handle.ToInt32()
-                pip_hwnd  = pip_win.native.Handle.ToInt32()
-                fg        = user32.GetForegroundWindow()
-
-                pip_is_active    = (fg == pip_hwnd)
-                main_is_minimized = bool(user32.IsIconic(main_hwnd))
-                pip_is_visible   = bool(user32.IsWindowVisible(pip_hwnd))
-
-                # Use frontend-reported focus or HWND match for reliability with WebView2
-                main_is_active = getattr(self, 'is_main_focused', True) or (fg == main_hwnd)
-
-                statuses = self.get_statuses()
-                any_running = "Running" in statuses.values()
-
-                if not any_running or (main_is_active and not main_is_minimized):
-                    # No services running OR Main window is in the foreground — hide PiP
-                    if pip_is_visible:
-                        try:
-                            pip_win.hide()
-                        except Exception as e:
-                            logger.error(f"Error hiding PiP: {e}")
-                        logger.info("PiP hidden — main window active or no services running.")
-                    if main_is_active and not main_is_minimized:
-                        self._pip_paused = False  # reset so PiP reappears next time
-                elif (main_is_minimized or not main_is_active) and not pip_is_active:
-                    # Main is minimized OR user switched to another app AND services are running — show PiP
-                    if not pip_is_visible and not self._pip_paused:
-                        try:
-                            pip_win.show()
-                            if hasattr(pip_win, 'native') and pip_win.native:
-                                pip_win.native.TopMost = True
-                                
-                            # Restore focus to whatever app the user was using
-                            import ctypes
-                            if fg and fg != pip_win.native.Handle.ToInt32():
-                                ctypes.windll.user32.SetForegroundWindow(fg)
-                        except Exception as e:
-                            logger.error(f"Error showing PiP: {e}")
-                        logger.info("PiP shown — main window inactive/minimized and services running.")
-            except Exception as e:
-                logger.error(f"PiP monitor error: {e}", exc_info=True)
-
-        logger.info("PiP focus monitor thread exited.")
-
-    def minimize_pip(self):
-        """Minimize (hide for this session) the PiP overlay. It reappears next time main loses focus."""
-        if self._pip_window is not None:
-            logger.info("PiP minimized by user.")
-            self._pip_paused = True
-            try:
-                self._pip_window.minimize()
-            except Exception as e:
-                logger.error(f"Error minimizing PiP: {e}")
-            return True
-        return False
-
-    def resize_pip(self, width: int, height: int):
-        """Resize the PiP window."""
-        if self._pip_window is not None:
-            try:
-                self._pip_window.resize(width, height)
-                logger.info(f"PiP resized to {width}x{height}")
-                return True
-            except Exception as e:
-                logger.error(f"Error resizing PiP: {e}")
-        return False
-
-    def focus_main_window(self):
-        """Bring the main application window to the foreground."""
-        if self._window is not None:
-            logger.info("Focusing main window from PiP request.")
-            try:
-                self._window.restore()
-                if os.name == 'nt':
-                    import ctypes
-                    hwnd = self._window.native.Handle.ToInt32()
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
-            except Exception as e:
-                logger.error(f"Error focusing main window: {e}")
-            return True
-        return False
 
     def get_pip_data(self):
         """Return all projects and their current service statuses for the PiP window."""

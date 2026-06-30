@@ -4,7 +4,12 @@ import threading
 import webview
 
 from backend.logger import logger
-from backend.api import Api, DEBUG
+from backend.api import Api
+from backend.config import (
+    DEBUG, DEV_URL, WINDOW_TITLE, WINDOW_WIDTH, WINDOW_HEIGHT, 
+    WINDOW_BG_COLOR, PIP_TITLE, PIP_WIDTH, PIP_HEIGHT, 
+    PIP_MIN_SIZE, PIP_BG_COLOR
+)
 
 if __name__ == '__main__':
     logger.info("=========================================")
@@ -19,26 +24,44 @@ if __name__ == '__main__':
         api._write_to_json([])
         
     if DEBUG:
-        url = 'http://localhost:5173'
-        logger.info("Running in development mode (hot-reloading localhost:5173)")
+        url = DEV_URL
+        logger.info(f"Running in development mode (hot-reloading {DEV_URL})")
     else:
         html_path = os.path.join(api.base_dir, 'gui', 'dist', 'index.html')
         if not os.path.exists(html_path):
-            logger.warning(f"Production assets not found at {html_path}! Falling back to localhost:5173")
-            url = 'http://localhost:5173'
+            logger.warning(f"Production assets not found at {html_path}! Falling back to dev url")
+            url = DEV_URL
         else:
             url = f'file:///{html_path.replace(chr(92), "/")}'
             logger.info(f"Loading compiled client assets from: {url}")
             
     window = webview.create_window(
-        'Language-Agnostic Developer Dashboard',
+        WINDOW_TITLE,
         url,
         js_api=api,
-        width=1280,
-        height=850,
-        background_color='#09090b'
+        width=WINDOW_WIDTH,
+        height=WINDOW_HEIGHT,
+        background_color=WINDOW_BG_COLOR
     )
     api._window = window
+
+    # Pre-create PiP window here on the main GUI thread to avoid deadlock 
+    # when pywebview tries to create it dynamically from an API thread.
+    pip_url = url + '#pip' if DEBUG else url + '#pip'
+    pip_window = webview.create_window(
+        PIP_TITLE,
+        pip_url,
+        js_api=api,
+        width=PIP_WIDTH,
+        height=PIP_HEIGHT,
+        min_size=PIP_MIN_SIZE,
+        frameless=True,
+        on_top=True,
+        background_color=PIP_BG_COLOR,
+        shadow=True,
+        hidden=True
+    )
+    api._pip_window = pip_window
 
     # Stop all running child processes when the window closes to prevent orphan hangs
     def on_closed():

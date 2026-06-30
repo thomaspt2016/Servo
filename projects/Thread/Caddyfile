@@ -1,0 +1,10 @@
+
+    http://localhost:60393 {
+        handle_path /api/* {
+            reverse_proxy localhost:60391
+        }
+        handle {
+            reverse_proxy localhost:60392
+        }
+    }
+    

@@ -7,8 +7,9 @@ import json
 import psutil
 
 from backend.logger import logger
+from backend.mixins.port_mixin import PortMixin
 
-class ProcessManager:
+class ProcessManager(PortMixin):
     def __init__(self, get_projects_callback, api=None):
         self.lock = threading.RLock()
         self.processes = {}
@@ -27,30 +28,6 @@ class ProcessManager:
         self.metrics = {}
         self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
         self._metrics_thread.start()
-
-    def _get_free_port(self):
-        import socket
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', 0))
-            return s.getsockname()[1]
-
-    def _ensure_project_ports_allocated(self, project_id):
-        projects = self.get_projects()
-        project = next((p for p in projects if p.get('id') == project_id), None)
-        if not project:
-            return
-            
-        for s in project.get('services', []):
-            s_id = s.get('id')
-            key = f"{project_id}_{s_id}"
-            if key not in self.allocated_ports:
-                self.allocated_ports[key] = self._get_free_port()
-                
-            for env_var in s.get('env_vars', []):
-                if env_var.get('is_dynamic_port'):
-                    env_key = f"{key}_env_{env_var.get('key')}"
-                    if env_key not in self.allocated_ports:
-                        self.allocated_ports[env_key] = self._get_free_port()
 
     def _trigger_crash_notification(self, key):
         logger.info(f"Triggering crash notification for key: {key}")
@@ -505,26 +482,9 @@ class ProcessManager:
             
             # Pre-process command string replacement
             self._ensure_project_ports_allocated(project_id)
-            proj = next((p for p in projects if p.get('id') == project_id), None)
-            if proj:
-                for s_iter in proj.get('services', []):
-                    iter_key = f"{project_id}_{s_iter.get('id')}"
-                    for env_var in s_iter.get('env_vars', []):
-                        k = env_var.get('key')
-                        if not k: continue
-                        val = None
-                        if env_var.get('is_dynamic_port'):
-                            env_key = f"{iter_key}_env_{k}"
-                            val = self.allocated_ports.get(env_key)
-                        else:
-                            val = env_var.get('override_value') or env_var.get('value', '')
-                        if val is not None:
-                            command = command.replace(f"{{{k}}}", str(val))
-            
-            # Also pre-process {PORT} for self
             actual_port = self.allocated_ports.get(key)
             if actual_port:
-                command = command.replace("{PORT}", str(actual_port))
+                command = command.replace("{port}", str(actual_port)).replace("{PORT}", str(actual_port))
 
             if not command.strip():
                 logger.info(f"Start ignored: service {key} has no command.")
@@ -583,44 +543,30 @@ class ProcessManager:
                 # Setup custom environment variables for virtual environments
                 process_env = os.environ.copy()
                 
-                # Dynamic Port Allocation & Env Pushing
+                # Dynamic Port Allocation
                 self._ensure_project_ports_allocated(project_id)
                 
-                # Push all allocated ports and static env vars for this project into env
-                proj = next((p for p in projects if p.get('id') == project_id), None)
-                if proj:
-                    for s_iter in proj.get('services', []):
-                        iter_key = f"{project_id}_{s_iter.get('id')}"
-                        for env_var in s_iter.get('env_vars', []):
-                            k = env_var.get('key')
-                            if not k:
-                                continue
-                            if env_var.get('is_dynamic_port'):
-                                env_key = f"{iter_key}_env_{k}"
-                                allocated = self.allocated_ports.get(env_key)
-                                if allocated:
-                                    process_env[k] = str(allocated)
-                            else:
-                                override = env_var.get('override_value')
-                                if override:
-                                    process_env[k] = str(override)
-                                else:
-                                    process_env[k] = str(env_var.get('value', ''))
-                # Self port setup
                 actual_port = self.allocated_ports.get(key)
                 if actual_port:
                     process_env['PORT'] = str(actual_port)
-                    command = command.replace("{PORT}", str(actual_port))
+                    command = command.replace("{port}", str(actual_port)).replace("{PORT}", str(actual_port))
                     self.active_ports[key] = actual_port
                     logger.info(f"Dynamically assigned port {actual_port} for service '{name}'")
-
 
                 if venv_path and use_venv:
                     expanded_venv = os.path.expanduser(venv_path)
                     venv_bin = os.path.join(expanded_venv, 'Scripts') if os.name == 'nt' else os.path.join(expanded_venv, 'bin')
-                    process_env['PATH'] = venv_bin + os.pathsep + process_env.get('PATH', '')
-                    process_env['VIRTUAL_ENV'] = expanded_venv
-                    logger.info(f"Prepending virtual environment PATH prefix: '{venv_bin}' for service '{name}'")
+                    
+                    if os.name == 'nt':
+                        activate_script = os.path.join(venv_bin, 'Activate.ps1')
+                        if os.path.exists(activate_script):
+                            command = f'& "{activate_script}"; {command}'
+                    else:
+                        activate_script = os.path.join(venv_bin, 'activate')
+                        if os.path.exists(activate_script):
+                            command = f'source "{activate_script}" && {command}'
+                    
+                    logger.info(f"Prepending virtual environment activation script for service '{name}'")
                 elif venv_path:
                     logger.info(f"Virtual environment path activation disabled by user configuration for service '{name}'")
                 

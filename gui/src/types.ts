@@ -15,6 +15,7 @@ export interface Service {
   language?: string;
   description?: string;
   env_vars?: EnvVar[];
+  serviceType?: string;
   mode?: "npm" | "custom" | "file";
 }
 
@@ -72,6 +73,7 @@ export interface FormService {
   language?: string;
   mode?: "file" | "npm" | "custom";
   env_vars?: EnvVar[];
+  serviceType?: string;
 }
 
 export interface FormState {
@@ -90,7 +92,7 @@ declare global {
         load_projects(): Promise<Project[]>;
         save_project(project: Project): Promise<boolean>;
         delete_project(id: string): Promise<boolean>;
-        import_project(): Promise<boolean>;
+        import_project(path?: string): Promise<boolean>;
         read_env_file(filePath: string): Promise<Record<string, string>>;
         start_service(projectId: string, serviceId: string): Promise<boolean>;
         install_dependencies(projectId: string, serviceId: string): Promise<boolean>;

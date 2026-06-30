@@ -93,57 +93,34 @@ export default function ProjectConfigDialog({
   handleBrowseCommandFile,
   handleAddServiceForm,
 }: ProjectConfigDialogProps) {
-  const handleLoadEnvFile = async (index: number) => {
-    // Default to the project path or first service path or empty
-    const defaultDir = formState.path || formState.services[0]?.path || null;
-    
-    if (window.pywebview?.api) {
-      try {
-        const filePath = await window.pywebview.api.pick_file(defaultDir);
-        if (!filePath) return; // User cancelled
-        
-        const envs = await window.pywebview.api.read_env_file(filePath);
-        const updated = [...formState.services];
-        const existingVars = updated[index].env_vars || [];
-        const existingKeys = new Set(existingVars.map(v => v.key));
-        
-        for (const [k, v] of Object.entries(envs)) {
-          if (!existingKeys.has(k)) {
-            existingVars.push({ key: k, value: v as string, is_dynamic_port: false });
-          }
-        }
-        updated[index].env_vars = existingVars;
-        setFormState({ ...formState, services: updated });
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
+
 
   if (!isDialogOpen) return null;
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 bg-zinc-950/20 text-zinc-200">
-      <div className="w-full max-w-[1400px] mx-auto">
-        <form onSubmit={handleSave} className="space-y-8">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-black/40 backdrop-blur-xl text-zinc-200 transition-all duration-300">
+      <div className="w-full max-w-[1400px] mx-auto animate-in fade-in zoom-in-95 duration-300 ease-out">
+        <form onSubmit={handleSave} className="space-y-10">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 bg-zinc-900/20 p-6 rounded-2xl border border-zinc-800/50 shadow-lg">
             <div>
-              <h2 className="text-2xl font-bold">{isEditMode ? "Edit Project Configuration" : "Add Project Configuration"}</h2>
-              <p className="text-sm text-zinc-400 mt-1">
-                Configure the project stack. You can run multiple backend/frontend services in parallel.
+              <h2 className="text-3xl font-extrabold bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent tracking-tight">
+                {isEditMode ? "Edit Project Configuration" : "New Project Configuration"}
+              </h2>
+              <p className="text-sm text-zinc-400 mt-2 font-medium">
+                Configure your project stack. Run multiple backend/frontend services effortlessly in parallel.
               </p>
             </div>
-            <div className="flex items-center space-x-2 flex-shrink-0">
+            <div className="flex items-center space-x-3 flex-shrink-0">
               <Button
                 type="button"
                 variant="ghost"
                 onClick={() => setIsDialogOpen(false)}
-                className="text-zinc-400 hover:text-zinc-200"
+                className="text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors rounded-xl px-5"
               >
                 Cancel
               </Button>
-              <Button type="submit" className="bg-primary text-zinc-100 hover:bg-primary/90">
-                {isEditMode ? "Update Project" : "Add Project"}
+              <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_rgba(var(--primary),0.2)] hover:shadow-[0_0_25px_rgba(var(--primary),0.4)] transition-all rounded-xl px-6 font-semibold">
+                {isEditMode ? "Save Changes" : "Create Project"}
               </Button>
             </div>
           </div>
@@ -156,9 +133,9 @@ export default function ProjectConfigDialog({
           )}
 
           {/* General Project Config */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="col-span-1 space-y-1.5">
-              <label htmlFor="proj_name" className="text-xs font-semibold text-zinc-400">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 px-2">
+            <div className="col-span-1 space-y-2">
+              <label htmlFor="proj_name" className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
                 Project Display Name
               </label>
               <Input
@@ -166,10 +143,11 @@ export default function ProjectConfigDialog({
                 placeholder="e.g. Fullstack E-Commerce"
                 value={formState.name}
                 onChange={(e) => setFormState({ ...formState, name: e.target.value })}
+                className="h-11 bg-zinc-950/50 border-zinc-800/80 focus:border-primary/50 focus:ring-primary/20 rounded-xl transition-all"
               />
             </div>
-            <div className="col-span-2 space-y-1.5">
-              <label htmlFor="proj_description" className="text-xs font-semibold text-zinc-400">
+            <div className="col-span-1 md:col-span-2 space-y-2">
+              <label htmlFor="proj_description" className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
                 Project Description
               </label>
               <Input
@@ -177,74 +155,84 @@ export default function ProjectConfigDialog({
                 placeholder="Short description of this project stack"
                 value={formState.description}
                 onChange={(e) => setFormState({ ...formState, description: e.target.value })}
+                className="h-11 bg-zinc-950/50 border-zinc-800/80 focus:border-primary/50 focus:ring-primary/20 rounded-xl transition-all"
               />
             </div>
           </div>
 
           {/* SERVICES SECTION */}
-          <div className="border-t border-zinc-900/60 pt-6">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-sm font-bold text-zinc-300">Services Stack ({formState.services.length})</h3>
+          <div className="pt-8">
+            <div className="flex justify-between items-center mb-6 px-2">
+              <div className="flex items-center space-x-3">
+                <h3 className="text-xl font-bold text-zinc-100">Services Stack</h3>
+                <span className="px-2.5 py-0.5 bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-full border border-zinc-700">
+                  {formState.services.length} {formState.services.length === 1 ? 'Service' : 'Services'}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={handleAutoDetectServices}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-primary/20 hover:bg-primary/30 text-xs font-semibold rounded-lg text-primary transition-colors border border-primary/20"
+                className="group flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10 text-sm font-semibold rounded-xl text-primary transition-all border border-primary/20 shadow-sm hover:shadow-[0_0_15px_rgba(var(--primary),0.15)]"
               >
-                <Wand2 className="h-3.5 w-3.5" />
-                <span>Smart Import (Auto-detect)</span>
+                <Wand2 className="h-4 w-4 group-hover:rotate-12 transition-transform" />
+                <span>Smart Auto-Detect</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 pt-2">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {formState.services.map((service, index) => (
-                <div key={service.id} className="p-5 border border-zinc-900 bg-zinc-950/40 rounded-xl relative space-y-4 shadow-sm flex flex-col">
-                  <div className="flex justify-between items-center pb-2 border-b border-zinc-900">
-                    <span className="text-xs font-bold text-primary">Service #{index + 1}</span>
-                    <div className="flex items-center space-x-3">
+                <div key={service.id} className="group p-6 border border-zinc-800/60 bg-gradient-to-br from-zinc-900/40 to-zinc-950/60 rounded-2xl relative space-y-5 shadow-xl hover:shadow-primary/5 hover:border-primary/30 transition-all duration-300 flex flex-col backdrop-blur-sm">
+                  <div className="flex justify-between items-center pb-4 border-b border-zinc-800/50">
+                    <div className="flex items-center space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.6)] animate-pulse" />
+                      <span className="text-sm font-bold text-zinc-100 tracking-wide uppercase">Service {index + 1}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
                       <button
                         type="button"
                         onClick={() => handleDuplicateServiceForm(index)}
-                        className="text-zinc-500 hover:text-zinc-350 flex items-center space-x-1 text-xs"
+                        className="text-zinc-400 hover:text-white bg-zinc-800/50 hover:bg-zinc-700/50 px-2.5 py-1.5 rounded-md flex items-center space-x-1.5 text-xs transition-colors border border-zinc-700/50"
                         title="Duplicate Service"
                       >
-                        <Copy className="h-3.5 w-3.5 text-zinc-500" />
-                        <span>Duplicate</span>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span className="font-medium">Duplicate</span>
                       </button>
                       {formState.services.length > 1 && (
                         <button
                           type="button"
                           onClick={() => handleRemoveServiceForm(index)}
-                          className="text-zinc-500 hover:text-destructive flex items-center space-x-1 text-xs"
+                          className="text-zinc-400 hover:text-red-400 bg-zinc-800/50 hover:bg-red-500/10 hover:border-red-500/20 px-2.5 py-1.5 rounded-md flex items-center space-x-1.5 text-xs transition-colors border border-zinc-700/50"
                           title="Remove Service"
                         >
-                          <Trash2 className="h-3.5 w-3.5 text-zinc-500" />
-                          <span>Remove</span>
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span className="font-medium">Remove</span>
                         </button>
                       )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     {/* Service Name */}
-                    <div className="space-y-1.5 col-span-2 md:col-span-1">
-                      <label className="text-[11px] font-semibold text-zinc-400">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-zinc-400">
                         Service Name
                       </label>
                       <Input
-                        placeholder="e.g. Frontend Web / Node Server"
+                        placeholder="e.g. Frontend Web"
                         value={service.name}
                         onChange={(e) => {
                           const updated = [...formState.services];
                           updated[index].name = e.target.value;
                           setFormState({ ...formState, services: updated });
                         }}
+                        className="h-10"
                       />
                     </div>
 
                     {/* Service Language selector */}
-                    <div className="space-y-1.5 col-span-2 md:col-span-1">
-                      <label className="text-[11px] font-semibold text-zinc-400">
-                        Service Language / Stack
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-zinc-400">
+                        Language / Stack
                       </label>
                       <Select
                         value={service.language || "Python"}
@@ -265,6 +253,7 @@ export default function ProjectConfigDialog({
                             fetchNpmScripts(service.id, service.path);
                           }
                         }}
+                        className="h-10"
                       >
                         {(() => {
                           const opts = [...installedLanguages];
@@ -278,6 +267,26 @@ export default function ProjectConfigDialog({
                           ));
                         })()}
                       </Select>
+                    </div>
+
+                    {/* Service Type Selection */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-zinc-400">
+                        Type & Routing
+                      </label>
+                      <select
+                        value={service.serviceType || 'background'}
+                        onChange={(e) => {
+                          const updated = [...formState.services];
+                          updated[index].serviceType = e.target.value;
+                          setFormState({ ...formState, services: updated });
+                        }}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-md text-sm text-zinc-300 h-10 px-3 focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                      >
+                        <option value="frontend">Web Frontend (Routes to /)</option>
+                        <option value="backend">API Backend (Routes to /api/*)</option>
+                        <option value="background">Background Worker</option>
+                      </select>
                     </div>
                   </div>
 
@@ -408,7 +417,7 @@ export default function ProjectConfigDialog({
                         )}
 
                         {(service.mode || "npm") === "custom" && (
-                          <div className="flex space-x-2">
+                          <div className="flex items-center space-x-2">
                             <Input
                               placeholder="e.g. npm run dev / node server.js"
                               value={service.command}
@@ -419,17 +428,60 @@ export default function ProjectConfigDialog({
                               }}
                               className="flex-1"
                             />
+                            <div className="relative group/tooltip flex items-center justify-center">
+                              <Info className="h-5 w-5 text-zinc-500 hover:text-primary transition-colors cursor-help" />
+                              <div className="absolute bottom-full mb-2 right-0 w-[460px] p-4 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity z-50 text-xs text-zinc-300">
+                                <p className="font-semibold text-zinc-100 mb-2 text-[13px]">Command Configuration Guide</p>
+                                
+                                <div className="mb-3 space-y-2 text-[11px] text-zinc-400 font-sans leading-relaxed">
+                                  <p><strong className="text-primary font-semibold">Web Apps (Browser):</strong> Use <code className="text-primary bg-primary/10 px-1 py-0.5 rounded font-mono">{"{port}"}</code> to let Servo assign dynamic ports and automatically bridge your Frontend & Backend via the Caddy reverse proxy (No CORS!).</p>
+                                  <p><strong className="text-zinc-200 font-semibold">Desktop Apps (PyWebView/Electron):</strong> Do <strong className="text-white uppercase text-[10px] bg-red-500/30 px-1 py-0.5 rounded font-bold">not</strong> use <code className="text-zinc-300 font-mono">{"{port}"}</code>! Hardcode a static port (e.g. <code className="font-mono bg-zinc-800 px-1 py-0.5 rounded">--port 5173</code>) in both your UI and Backend commands so your desktop window knows exactly where to load the UI.</p>
+                                </div>
+
+                                <p className="font-semibold text-zinc-300 mb-2 border-t border-zinc-800/80 pt-3">Common Command Examples:</p>
+                                <ul className="space-y-2 font-mono text-[10px]">
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Node.js (Vite / React / Vue):</span>
+                                    <span className="text-emerald-400">npm run dev -- --port {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (FastAPI / Uvicorn):</span>
+                                    <span className="text-emerald-400">uvicorn main:app --port {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (Django):</span>
+                                    <span className="text-emerald-400">python manage.py runserver {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (Flask):</span>
+                                    <span className="text-emerald-400">flask run -p {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Docker Container:</span>
+                                    <span className="text-emerald-400">docker run -p {"{port}"}:8000 my-awesome-image</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Docker Compose (Windows):</span>
+                                    <span className="text-emerald-400">$env:PORT={"{"}port{"}"}; docker-compose up</span>
+                                  </li>
+                                  <li className="pt-2 mt-1 border-t border-zinc-800/80">
+                                    <span className="text-zinc-500 block font-sans">• Background Task (No proxy needed):</span>
+                                    <span className="text-emerald-400">celery worker -A tasks <span className="text-zinc-500 font-sans italic">(Just don't use {"{port}"}!)</span></span>
+                                  </li>
+                                </ul>
+                              </div>
+                            </div>
                           </div>
                         )}
 
                         {/* Execution Preview Panel */}
                         {service.command && (
-                          <div className="p-2.5 bg-zinc-950/60 border border-zinc-900/80 rounded-lg font-mono text-[10px] space-y-1">
-                            <div className="flex justify-between items-center text-[9px] uppercase tracking-wider font-semibold text-zinc-500">
+                          <div className="p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-xl font-mono text-[10px] space-y-2 shadow-inner">
+                            <div className="flex justify-between items-center text-[9px] uppercase tracking-wider font-bold text-zinc-500">
                               <span>Active Execution Command:</span>
                               <span className="text-zinc-650 font-normal capitalize">{(service.mode || "npm")} mode</span>
                             </div>
-                            <code className="text-emerald-400 block break-all font-mono">
+                            <code className="text-emerald-400 block break-all font-mono text-[11px]">
                               {service.command}
                             </code>
                           </div>
@@ -555,7 +607,7 @@ export default function ProjectConfigDialog({
                         )}
 
                         {(service.mode || "file") === "custom" && (
-                          <div className="flex space-x-2">
+                          <div className="flex items-center space-x-2">
                             <Input
                               placeholder="e.g. python main.py / go run main.go"
                               value={service.command}
@@ -566,17 +618,60 @@ export default function ProjectConfigDialog({
                               }}
                               className="flex-1"
                             />
+                            <div className="relative group/tooltip flex items-center justify-center">
+                              <Info className="h-5 w-5 text-zinc-500 hover:text-primary transition-colors cursor-help" />
+                              <div className="absolute bottom-full mb-2 right-0 w-[460px] p-4 bg-zinc-950 border border-zinc-800 rounded-xl shadow-2xl opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity z-50 text-xs text-zinc-300">
+                                <p className="font-semibold text-zinc-100 mb-2 text-[13px]">Command Configuration Guide</p>
+                                
+                                <div className="mb-3 space-y-2 text-[11px] text-zinc-400 font-sans leading-relaxed">
+                                  <p><strong className="text-primary font-semibold">Web Apps (Browser):</strong> Use <code className="text-primary bg-primary/10 px-1 py-0.5 rounded font-mono">{"{port}"}</code> to let Servo assign dynamic ports and automatically bridge your Frontend & Backend via the Caddy reverse proxy (No CORS!).</p>
+                                  <p><strong className="text-zinc-200 font-semibold">Desktop Apps (PyWebView/Electron):</strong> Do <strong className="text-white uppercase text-[10px] bg-red-500/30 px-1 py-0.5 rounded font-bold">not</strong> use <code className="text-zinc-300 font-mono">{"{port}"}</code>! Hardcode a static port (e.g. <code className="font-mono bg-zinc-800 px-1 py-0.5 rounded">--port 5173</code>) in both your UI and Backend commands so your desktop window knows exactly where to load the UI.</p>
+                                </div>
+
+                                <p className="font-semibold text-zinc-300 mb-2 border-t border-zinc-800/80 pt-3">Common Command Examples:</p>
+                                <ul className="space-y-2 font-mono text-[10px]">
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Node.js (Vite / React / Vue):</span>
+                                    <span className="text-emerald-400">npm run dev -- --port {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (FastAPI / Uvicorn):</span>
+                                    <span className="text-emerald-400">uvicorn main:app --port {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (Django):</span>
+                                    <span className="text-emerald-400">python manage.py runserver {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Python (Flask):</span>
+                                    <span className="text-emerald-400">flask run -p {"{port}"}</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Docker Container:</span>
+                                    <span className="text-emerald-400">docker run -p {"{port}"}:8000 my-awesome-image</span>
+                                  </li>
+                                  <li>
+                                    <span className="text-zinc-500 block font-sans">• Docker Compose (Windows):</span>
+                                    <span className="text-emerald-400">$env:PORT={"{"}port{"}"}; docker-compose up</span>
+                                  </li>
+                                  <li className="pt-2 mt-1 border-t border-zinc-800/80">
+                                    <span className="text-zinc-500 block font-sans">• Background Task (No proxy needed):</span>
+                                    <span className="text-emerald-400">celery worker -A tasks <span className="text-zinc-500 font-sans italic">(Just don't use {"{port}"}!)</span></span>
+                                  </li>
+                                </ul>
+                              </div>
+                            </div>
                           </div>
                         )}
 
                         {/* Execution Preview Panel */}
                         {service.command && (
-                          <div className="p-2.5 bg-zinc-950/60 border border-zinc-900/80 rounded-lg font-mono text-[10px] space-y-1">
-                            <div className="flex justify-between items-center text-[9px] uppercase tracking-wider font-semibold text-zinc-500">
+                          <div className="p-3 bg-zinc-950/80 border border-zinc-800/80 rounded-xl font-mono text-[10px] space-y-2 shadow-inner">
+                            <div className="flex justify-between items-center text-[9px] uppercase tracking-wider font-bold text-zinc-500">
                               <span>Active Execution Command:</span>
                               <span className="text-zinc-650 font-normal capitalize">{(service.mode || "file")} mode</span>
                             </div>
-                            <code className="text-emerald-400 block break-all font-mono">
+                            <code className="text-emerald-400 block break-all font-mono text-[11px]">
                               {getResolvedCommandPreview(service, service.language || "Python")}
                             </code>
                           </div>
@@ -604,140 +699,40 @@ export default function ProjectConfigDialog({
                       )}
                     </div>
                   )}
-                  
-                  {/* Environment Variables - Shared across all layouts */}
-                  <div className="pt-4 mt-4 border-t border-zinc-900/60 space-y-3 px-5 pb-5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-semibold text-zinc-400">
-                        Runtime Environment Overrides
-                      </label>
-                      <div className="flex space-x-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => handleLoadEnvFile(index)}
-                          className="h-6 text-[10px] px-2 text-primary hover:text-primary/80 hover:bg-transparent"
-                        >
-                          Load .env File
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            const updated = [...formState.services];
-                            updated[index].env_vars = [...(updated[index].env_vars || []), { key: "", value: "", is_dynamic_port: false }];
-                            setFormState({ ...formState, services: updated });
-                          }}
-                          className="h-6 text-[10px] px-2 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
-                        >
-                          + Add Var
-                        </Button>
-                      </div>
-                    </div>
 
-                    {(service.env_vars || []).length > 0 && (
-                      <div className="space-y-2">
-                        {service.env_vars!.map((envVar, envIndex) => (
-                          <div key={envIndex} className="flex flex-col md:flex-row md:items-center gap-2 border border-zinc-900/40 p-2 rounded-lg bg-zinc-950/20">
-                            <div className="flex-1 flex gap-2">
-                              <Input
-                                placeholder="Key (e.g. PORT)"
-                                value={envVar.key}
-                                onChange={(e) => {
-                                  const updated = [...formState.services];
-                                  updated[index].env_vars![envIndex].key = e.target.value;
-                                  setFormState({ ...formState, services: updated });
-                                }}
-                                className="w-1/3 h-8 text-[11px] bg-zinc-950"
-                              />
-                              <Input
-                                placeholder="Default Value"
-                                value={envVar.value}
-                                disabled={true}
-                                className="w-1/3 h-8 text-[11px] text-zinc-500 bg-zinc-900/50"
-                                title="Original value from .env file"
-                              />
-                              <Input
-                                placeholder="Runtime Override Value"
-                                value={envVar.is_dynamic_port ? "<Auto-Assigned Port>" : (envVar.override_value || "")}
-                                disabled={envVar.is_dynamic_port}
-                                onChange={(e) => {
-                                  const updated = [...formState.services];
-                                  updated[index].env_vars![envIndex].override_value = e.target.value;
-                                  setFormState({ ...formState, services: updated });
-                                }}
-                                className="flex-1 h-8 text-[11px] bg-zinc-950 border-primary/30"
-                                title="Value to inject at runtime"
-                              />
-                            </div>
-                            <div className="flex items-center space-x-2 pl-1">
-                              <div className="flex items-center space-x-1 whitespace-nowrap">
-                                <input
-                                  type="checkbox"
-                                  id={`dyn_${index}_${envIndex}`}
-                                  checked={envVar.is_dynamic_port}
-                                  onChange={(e) => {
-                                    const updated = [...formState.services];
-                                    updated[index].env_vars![envIndex].is_dynamic_port = e.target.checked;
-                                    setFormState({ ...formState, services: updated });
-                                  }}
-                                  className="rounded bg-zinc-950 border-zinc-800 text-primary h-3.5 w-3.5 focus:ring-0"
-                                />
-                                <label htmlFor={`dyn_${index}_${envIndex}`} className="text-[10px] text-zinc-400 cursor-pointer">
-                                  Dyn. Port
-                                </label>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                onClick={() => {
-                                  const updated = [...formState.services];
-                                  updated[index].env_vars!.splice(envIndex, 1);
-                                  setFormState({ ...formState, services: updated });
-                                }}
-                                className="h-8 w-8 p-0 text-zinc-500 hover:text-red-400 flex-shrink-0"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </div>
               ))}
 
               {/* Add Service Button at the bottom of the list */}
-              <div className="col-span-1 xl:col-span-2 pt-2">
+              <div className="col-span-1 xl:col-span-2 pt-4">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={handleAddServiceForm}
-                  className="w-full border-zinc-800 border-dashed hover:bg-zinc-900 text-zinc-350 h-10 flex items-center justify-center space-x-2 bg-zinc-950/40"
+                  className="w-full border-zinc-800/80 border-dashed hover:border-primary/50 text-zinc-400 hover:text-primary h-16 flex items-center justify-center space-x-2 bg-zinc-950/20 hover:bg-primary/5 rounded-2xl transition-all duration-300 group shadow-sm hover:shadow-[0_0_20px_rgba(var(--primary),0.1)]"
                 >
-                  <Plus className="h-4 w-4 text-zinc-400" />
-                  <span>Add Service to Stack</span>
+                  <Plus className="h-5 w-5 group-hover:scale-125 transition-transform duration-300" />
+                  <span className="font-semibold text-sm">Add Another Service</span>
                 </Button>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end space-x-2 pt-6 border-t border-zinc-900 mt-8">
+          <div className="flex justify-end space-x-3 pt-8 pb-4 border-t border-zinc-800/50 mt-8">
             <Button
               type="button"
               variant="ghost"
               onClick={() => setIsDialogOpen(false)}
-              className="text-zinc-400 hover:text-zinc-200"
+              className="text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 rounded-xl px-6"
             >
               Cancel
             </Button>
             <Button 
               type="submit" 
-              className="bg-primary text-zinc-100 hover:bg-primary/90"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_15px_rgba(var(--primary),0.2)] rounded-xl px-8 font-bold"
               onClick={(e) => { e.stopPropagation(); }}
             >
-              {isEditMode ? "Update Project" : "Add Project"}
+              {isEditMode ? "Save Changes" : "Create Project"}
             </Button>
           </div>
         </form>

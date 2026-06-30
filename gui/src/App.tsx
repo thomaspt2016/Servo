@@ -6,6 +6,8 @@ import {
   PictureInPicture2,
   AlertTriangle
 } from "lucide-react";
+import { toast } from "sonner";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 // Import custom UI components
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ const Sidebar = lazy(() => import('./components/Sidebar'));
 const DashboardOverview = lazy(() => import('./components/DashboardOverview'));
 const ProjectWorkspace = lazy(() => import('./components/ProjectWorkspace'));
 const ProjectConfigDialog = lazy(() => import('./components/ProjectConfigDialog'));
+import { CommandPalette } from './components/CommandPalette';
 
 const getApi = () => {
   return window.pywebview!.api;
@@ -94,6 +97,37 @@ function App() {
   const [gitInfoMap, setGitInfoMap] = useState<Record<string, GitInfo>>({});
   const [isDockerRunning, setIsDockerRunning] = useState<boolean>(true);
   const [dockerContainers, setDockerContainers] = useState<Record<string, {name: string, state: string}[]>>({});
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const file = e.dataTransfer?.files[0];
+        if (file && (file as any).path) {
+          const res = await getApi().import_project((file as any).path);
+          if (res) toast.success("Project imported successfully!");
+        } else {
+          // If we don't have .path (like in a strict browser context), show an info message
+          toast.info("Folder path unavailable. Please use the Import button.");
+        }
+      } catch (err) {
+        toast.error("An error occurred during import.");
+      }
+    };
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
 
   const handleSelectProject = (id: string | null) => {
     setActiveProjectId(id);
@@ -479,7 +513,8 @@ function App() {
         use_venv: s.use_venv,
         env_vars: s.env_vars,
         language: s.language || "Python",
-        mode: s.mode
+        mode: s.mode,
+        serviceType: s.serviceType || "background"
       }))
     };
 
@@ -553,7 +588,8 @@ function App() {
           use_venv: s.use_venv !== false,
           env_vars: s.env_vars || [],
           language: s.language || "Python",
-          mode
+          mode,
+          serviceType: s.serviceType || "background"
         };
       })
     });
@@ -611,7 +647,8 @@ function App() {
         use_venv: s.use_venv !== false,
         env_vars: s.env_vars || [],
         language: s.language || "Python",
-        mode
+        mode,
+        serviceType: s.serviceType || "background"
       };
     });
 
@@ -660,7 +697,7 @@ function App() {
       description: "",
       category: "Python",
       services: [
-        { id: `srv-${Date.now()}-0`, name: "Main Server", description: "", path: "", command: "", venv_path: "", use_venv: true, language: "Python", mode: "file" }
+        { id: `srv-${Date.now()}-0`, name: "Main Server", description: "", path: "", command: "", venv_path: "", use_venv: true, language: "Python", mode: "file", serviceType: "background" }
       ]
     });
     setIsEditMode(false);
@@ -670,9 +707,11 @@ function App() {
 
   const handleImportClick = async () => {
     try {
-      await getApi().import_project();
+      const res = await getApi().import_project();
+      if (res) toast.success("Project imported successfully!");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to import project.");
     }
   };
 
@@ -696,7 +735,8 @@ function App() {
             venv_path: "",
             use_venv: true,
             language: defaultLang,
-            mode: defaultMode
+            mode: defaultMode,
+            serviceType: "background"
           }
         ]
       };
@@ -780,7 +820,8 @@ function App() {
             venv_path: s.venv_path || "",
             use_venv: !!s.use_venv,
             language: s.language,
-            mode: "custom" as const
+            mode: "custom" as const,
+            serviceType: "background"
           }));
           
           setFormState(prev => {
@@ -1043,32 +1084,44 @@ function App() {
               <Terminal className="h-3.5 w-3.5" />
               <span>{terminals.length > 0 ? `Terminal (${terminals.length})` : "Terminal"}</span>
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleTogglePip}
-              title={pipEnabled ? "PiP enabled — shows when app is minimised" : "PiP disabled — click to enable"}
-              className={`h-8 w-8 border transition-all ${
-                pipEnabled
-                  ? "text-primary border-primary/40 bg-primary/10 hover:bg-primary/20"
-                  : "text-zinc-500 border-zinc-800 hover:text-zinc-200 hover:bg-zinc-900"
-              }`}
-            >
-              <PictureInPicture2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => {
-                fetchProjects();
-                fetchStatuses();
-              }}
-              className="h-8 w-8 text-zinc-400 hover:text-zinc-200 border-zinc-800 hover:bg-zinc-900"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleTogglePip}
+                  className={`h-8 w-8 border transition-all ${
+                    pipEnabled
+                      ? "text-primary border-primary/40 bg-primary/10 hover:bg-primary/20"
+                      : "text-zinc-500 border-zinc-800 hover:text-zinc-200 hover:bg-zinc-900"
+                  }`}
+                >
+                  <PictureInPicture2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{pipEnabled ? "PiP enabled — shows when app is minimised" : "PiP disabled — click to enable"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    fetchProjects();
+                    fetchStatuses();
+                  }}
+                  className="h-8 w-8 text-zinc-400 hover:text-zinc-200 border-zinc-800 hover:bg-zinc-900"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh all projects & statuses</TooltipContent>
+            </Tooltip>
           </div>
         </header>
+
+        <CommandPalette projects={projects} handleSelectProject={handleSelectProject} fetchProjects={fetchProjects} fetchStatuses={fetchStatuses} handleNewClick={handleNewClick} />
+
 
         {isDialogOpen ? (
           <Suspense fallback={<div className="p-8 text-zinc-500">Loading config...</div>}>
