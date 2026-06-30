@@ -1,0 +1,958 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The Language-Agnostic Developer Dashboard">
+      
+      
+        <meta name="author" content="Servo Team">
+      
+      
+      
+        <link rel="prev" href="../../getting-started/">
+      
+      
+        <link rel="next" href="../log-viewer/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Managing Projects - Servo Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="blue" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#managing-projects-services" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Servo Documentation" class="md-header__button md-logo" aria-label="Servo Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Servo Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Managing Projects
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../development/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Development
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--lifted md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Servo Documentation" class="md-nav__button md-logo" aria-label="Servo Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Servo Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Projects
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Managing Projects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#adding-a-new-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adding a New Service
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Adding a New Service">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-project-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Project Name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-working-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Working Directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Command
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Command">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#nuance-a-python-virtual-environments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nuance A: Python Virtual Environments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nuance-b-nodejs-npm-on-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nuance B: Node.js &amp; NPM on Windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nuance-c-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nuance C: Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nuance-d-port-conflicts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nuance D: Port Conflicts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nuance-e-dynamic-ports-caddy-reverse-proxy-cors-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nuance E: Dynamic Ports &amp; Caddy Reverse Proxy (CORS Fix)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-storage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Storage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#controlling-the-process-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlling the Process Lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Controlling the Process Lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#starting-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Starting a Service
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stopping-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stopping a Service
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editing-and-deleting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing and Deleting
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../log-viewer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Log Viewer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hotkeys-pip/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hotkeys & PiP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="managing-projects-services">Managing Projects &amp; Services</h1>
+<p>Servo acts as the central hub for all your local development environments. Adding and configuring services correctly is crucial for a smooth workflow. Because Servo is language-agnostic, there are several nuances to understand depending on the type of service you are adding.</p>
+<h2 id="adding-a-new-service">Adding a New Service</h2>
+<p>To add a new service to your Servo dashboard, click the <strong>Add Project</strong> button in the main interface. You will be prompted for three key parameters:</p>
+<h3 id="1-project-name">1. Project Name</h3>
+<p>A descriptive, recognizable name. This is purely visual. (e.g., <code>Frontend (Vite)</code>, <code>Backend (Django)</code>, <code>Redis Cache</code>).</p>
+<h3 id="2-working-directory">2. Working Directory</h3>
+<p>The absolute path to the folder where the command should be executed. 
+<strong>Nuance:</strong> Servo will spawn the process from this location. This means any relative file paths in your code, or <code>.env</code> files your framework tries to load, will be resolved relative to this exact directory. Always ensure this points to the root of that specific service, not a parent monorepo folder (unless you are running a workspace-level command).</p>
+<h3 id="3-command">3. Command</h3>
+<p>The exact terminal command used to launch the service. This is where most of the complexity lies. Servo runs commands directly against the operating system's shell, which introduces some specific rules:</p>
+<h4 id="nuance-a-python-virtual-environments">Nuance A: Python Virtual Environments</h4>
+<p>You <strong>do not</strong> need to "activate" a virtual environment before running a Python script in Servo. Activating a venv in a terminal just temporarily modifies your <code>PATH</code>. Instead, simply provide the absolute path to the Python executable inside the virtual environment:
+* <strong>Correct (Windows):</strong> <code>.\venv\Scripts\python.exe main.py</code>
+* <strong>Correct (Unix):</strong> <code>./venv/bin/python main.py</code>
+* <strong>Incorrect:</strong> <code>activate &amp;&amp; python main.py</code></p>
+<h4 id="nuance-b-nodejs-npm-on-windows">Nuance B: Node.js &amp; NPM on Windows</h4>
+<p>On Windows, <code>npm</code> is technically a <code>.cmd</code> batch file. Depending on how your system is configured, simply typing <code>npm run dev</code> might cause Servo's subprocess to fail. If you encounter issues starting Node scripts, specify the explicit shell command or the <code>.cmd</code> extension:
+* <strong>Robust (Windows):</strong> <code>npm.cmd run dev</code> or <code>cmd.exe /c npm run dev</code>
+* <strong>Mac/Linux:</strong> <code>npm run dev</code> works out of the box.</p>
+<h4 id="nuance-c-environment-variables">Nuance C: Environment Variables</h4>
+<p>Servo executes commands exactly as written. If your service requires specific environment variables that aren't defined in a <code>.env</code> file, you must pass them in the command. 
+On Windows, setting inline environment variables (like <code>PORT=8080 node app.js</code>) natively fails. You should use a package like <code>cross-env</code> in your <code>package.json</code>, or define them in a <code>.env</code> file that your application loads.</p>
+<h4 id="nuance-d-port-conflicts">Nuance D: Port Conflicts</h4>
+<p>Servo does not currently manage port allocations by default. If you start a React app that binds to port <code>3000</code>, and then start a separate Express server also defaulting to <code>3000</code>, the second service will crash. Ensure the commands or configuration files for your services are explicitly set to use unique ports, <strong>or use the dynamic <code>{port}</code> proxy feature below.</strong></p>
+<h4 id="nuance-e-dynamic-ports-caddy-reverse-proxy-cors-fix">Nuance E: Dynamic Ports &amp; Caddy Reverse Proxy (CORS Fix)</h4>
+<p>When building modern fullstack apps, dealing with Cross-Origin Resource Sharing (CORS) between your local frontend dev server (e.g., Vite on port 5173) and your backend API (e.g., FastAPI on port 8000) is often a headache. </p>
+<p>Servo includes an embedded <strong>Caddy reverse proxy</strong> to automatically bridge your services. If a project defines both a frontend and backend service, you can instruct Servo to assign them dynamic ports and proxy them together on a single unified port, completely eliminating CORS.</p>
+<p><strong>How to configure it:</strong>
+In the Command Configuration for your services, replace your hardcoded ports with the special <code>{port}</code> syntax. Servo will inject dynamically allocated, free ports at runtime.</p>
+<ul>
+<li><strong>Web Apps (Browser):</strong> Use <code>{port}</code> to let Servo assign dynamic ports and automatically bridge your services via Caddy. </li>
+<li><em>Frontend Example:</em> <code>npm run dev -- --port {port}</code></li>
+<li><em>Backend Example (FastAPI):</em> <code>uvicorn main:app --port {port}</code></li>
+<li><em>Backend Example (Flask):</em> <code>flask run -p {port}</code></li>
+<li><strong>Desktop Apps (PyWebView/Electron):</strong> Do <strong>not</strong> use <code>{port}</code>. Hardcode a static port (e.g., <code>--port 5173</code>) in both your UI and Backend commands so your desktop window knows exactly where to load the UI on boot.</li>
+<li><strong>Background Tasks (Celery/Redis):</strong> No proxy is needed, simply do not use <code>{port}</code>.</li>
+</ul>
+<p>When Servo detects services utilizing <code>{port}</code>, it will transparently download (on first run) and spin up a Caddy reverse proxy process. You will see a <code>[SYSTEM] Proxy started on port X</code> message in your logs. You can then access your frontend at <code>http://localhost:&lt;proxy_port&gt;</code>, and any requests made to <code>/api/*</code> will automatically be routed to your backend service!</p>
+<p><strong>Code-Level Adjustments for Proxy Mode:</strong>
+Because Caddy is bridging your frontend and backend on a single port, you must adjust how your frontend code makes API requests. You no longer need to hardcode the backend port (e.g., <code>http://localhost:8000/api/users</code>). </p>
+<p>Instead, make <strong>relative API calls</strong>:
+<div class="language-javascript highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// ❌ WRONG (Hardcoded CORS issue)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;http://localhost:8000/api/users&quot;</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1">// ✅ CORRECT (Proxy handles it)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nx">fetch</span><span class="p">(</span><span class="s2">&quot;/api/users&quot;</span><span class="p">)</span>
+</span></code></pre></div></p>
+<p><strong>Running Outside of Servo (Standalone Compatibility)</strong>
+If you change your code to use relative paths (<code>/api/users</code>), it will work beautifully inside Servo thanks to Caddy. However, if you or a teammate try to run the project <em>outside</em> of Servo manually in a terminal, those relative API calls will fail because Caddy isn't there to route them.</p>
+<p>To overcome this issue and ensure your code works in <strong>both</strong> environments, you should configure your frontend dev server to act as a fallback proxy.</p>
+<p>For example, in a <strong>Vite</strong> project, configure <code>vite.config.js</code>:
+<div class="language-javascript highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">defineConfig</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;vite&#39;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">export</span><span class="w"> </span><span class="k">default</span><span class="w"> </span><span class="nx">defineConfig</span><span class="p">({</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nx">server</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nx">proxy</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="c1">// Fallback for standalone terminal usage.</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="c1">// When running inside Servo, Caddy intercepts this before Vite even sees it!</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="s1">&#39;/api&#39;</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;http://localhost:8000&#39;</span><span class="w"> </span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">})</span>
+</span></code></pre></div></p>
+<p>By doing this:
+1. <strong>Inside Servo</strong>: Caddy intercepts <code>/api/*</code> on the unified proxy port and routes it to the dynamic backend port. Vite's proxy is bypassed completely.
+2. <strong>Outside Servo</strong>: You run Vite on <code>localhost:5173</code> and your backend on <code>localhost:8000</code>. When your code fetches <code>/api/users</code>, Vite's proxy kicks in and forwards it to <code>8000</code>.</p>
+<p>Finally, ensure your package scripts can accept Servo's dynamic port injection:
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">// In package.json</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">&quot;scripts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;dev&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;vite&quot;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="p">}</span>
+</span></code></pre></div>
+<em>Servo Command:</em> <code>npm run dev -- --port {port}</code></p>
+<hr />
+<h2 id="configuration-storage">Configuration Storage</h2>
+<p>All your project configurations are saved securely on your local machine in a <code>storage.json</code> file located in the root of the Servo installation. This file is read automatically upon startup, so your dashboard persists across sessions.</p>
+<hr />
+<h2 id="controlling-the-process-lifecycle">Controlling the Process Lifecycle</h2>
+<p>Servo doesn't just run commands; it manages their entire lifecycle aggressively to prevent orphaned processes.</p>
+<h3 id="starting-a-service">Starting a Service</h3>
+<p>Click the <strong>Start</strong> button (play icon) on a project's card.
+- Servo uses Python's <code>subprocess</code> module to spawn the command.
+- Background daemon threads are immediately attached to the process's standard output (<code>stdout</code>) and standard error (<code>stderr</code>) pipes to begin log streaming.
+- The UI will update to indicate the project is <strong>Running</strong>.</p>
+<h3 id="stopping-a-service">Stopping a Service</h3>
+<p>Click the <strong>Stop</strong> button (stop square icon) to terminate a running project.
+- <strong>Graceful Termination</strong>: Servo understands that commands like <code>npm run dev</code> often spawn multiple child processes (like <code>node</code>, <code>esbuild</code>, etc.). 
+- To ensure no "zombie" processes are left behind draining your CPU, Servo performs a recursive process tree termination using <code>taskkill /F /T /PID &lt;id&gt;</code> on Windows (and equivalent <code>SIGTERM</code> trees on Unix).</p>
+<hr />
+<h2 id="editing-and-deleting">Editing and Deleting</h2>
+<ul>
+<li><strong>Editing</strong>: Click the <strong>Gear</strong> icon on a project card to modify its name, command, or working directory. You must stop the project before you can edit its core execution parameters.</li>
+<li><strong>Deleting</strong>: If you no longer need a project in your dashboard, you can remove it via the edit menu. This only removes the configuration from <code>storage.json</code>; your actual project code remains entirely untouched on your hard drive.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "toc.integrate", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
