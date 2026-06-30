@@ -4,3 +4,9 @@ This wizard will guide you through the setup of Servo.
 
 Developer: Thomas P.T.
 Email: thomaspt2016@gmail.com
+
+GitHub Repository: https://github.com/thomaspt2016/Servo
+
+Want to contribute? We'd love your help! 
+Whether you're fixing a bug, adding a new feature, or improving documentation, feel free to fork the repo and submit a Pull Request. 
+Check out our CONTRIBUTING.md in the repository for detailed instructions on getting your dev environment set up.

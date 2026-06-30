@@ -14,7 +14,7 @@ Servo is a beautiful, highly polished developer dashboard built to streamline yo
 - **Git Workflow Automation**: Track changes, stage files, and commit directly from your dashboard with clean, silent background processes.
 
 ## 🛠️ Installation Instructions
-1. Download the `Servo_Setup_v1.0.0.exe` installer file attached below.
+1. Download the `Servo_Setup_v1.1.0.exe` installer file attached below.
 2. Double-click the installer and follow the setup wizard.
 3. Once installed, launch Servo from your Start Menu or Desktop!
 4. **Note:** Servo safely installs to your `Program Files` and isolates all its logging and data gracefully into your Local AppData folder for a clean footprint.

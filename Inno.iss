@@ -1,5 +1,5 @@
 #define MyAppName "Servo"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Thomas Pt"
 #define MyAppExeName "Servo.exe"
 
@@ -15,7 +15,7 @@ InfoBeforeFile=INSTALL_WELCOME.txt
 InfoAfterFile=INSTALL_SUCCESS.txt
 LicenseFile=LICENSE
 OutputDir=installer_output
-OutputBaseFilename=Servo_Setup_v1.0.0
+OutputBaseFilename=Servo_Setup_v1.1.0
 SetupIconFile=icon.ico
 Compression=lzma2/max
 SolidCompression=yes
